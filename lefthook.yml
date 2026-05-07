@@ -1,0 +1,48 @@
+# Lefthook — Git hook runner
+# Install once after checkout: `pnpm exec lefthook install`
+# Skip hooks in an emergency: `LEFTHOOK=0 git commit ...` (avoid in normal work)
+#
+# Pre-commit formats + lints only STAGED files (fast, O(changed)).
+# Pre-push runs the full test suite (slower, O(project)).
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: pint (staged PHP)
+      glob: "*.php"
+      run: vendor/bin/pint --dirty --parallel
+      stage_fixed: true
+
+    - name: prettier (staged resources/)
+      glob: "resources/**/*.{ts,tsx,js,jsx,css,md,json}"
+      run: pnpm exec prettier --write {staged_files}
+      stage_fixed: true
+
+    - name: eslint (staged TS/TSX)
+      glob: "resources/**/*.{ts,tsx,js,jsx}"
+      run: pnpm exec eslint --fix {staged_files}
+      stage_fixed: true
+
+    - name: tsc (no emit — type-check only)
+      glob: "resources/**/*.{ts,tsx}"
+      run: pnpm run types:check
+
+pre-push:
+  jobs:
+    - name: phpstan (larastan)
+      run: vendor/bin/phpstan analyse --memory-limit=1G --no-progress
+
+    - name: pest
+      run: vendor/bin/pest --parallel
+
+    - name: eslint (full)
+      # Call eslint via `pnpm exec` rather than `pnpm run lint:check`.
+      # `pnpm run` invokes the script via a shell which expects `node`
+      # in PATH (eslint's shebang is `#!/usr/bin/env node`); some node
+      # installs (e.g. brew node@22 unlinked) leave node off PATH so
+      # the hook fails. `pnpm exec` invokes the bin directly using
+      # pnpm's own node resolution.
+      run: pnpm exec eslint .
+
+# Note: `stage_fixed: true` auto-adds re-formatted files back to the commit
+# so we don't need to manually `git add` after pint/prettier fixes.

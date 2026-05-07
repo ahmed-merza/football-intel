@@ -1,0 +1,91 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pest:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php-version: ['8.3', '8.4']
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: football_intel
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: football_intel_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U football_intel"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install pgvector
+        run: |
+          sudo docker exec $(docker ps -q --filter "ancestor=postgres:18") bash -c \
+            "apt-get update && apt-get install -y postgresql-18-pgvector"
+          PGPASSWORD=ci psql -h localhost -U football_intel -d football_intel_test \
+            -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: pdo_pgsql, redis
+          tools: composer:v2
+          coverage: xdebug
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+
+      - name: Install pnpm dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Copy environment
+        run: cp .env.example .env
+
+      - name: Generate application key
+        run: php artisan key:generate
+
+      - name: Configure env for CI
+        run: |
+          echo "DB_USERNAME=football_intel" >> .env
+          echo "DB_PASSWORD=ci" >> .env
+          echo "DB_DATABASE=football_intel_test" >> .env
+
+      - name: Build assets
+        run: pnpm run build
+
+      - name: Run Pest
+        run: vendor/bin/pest --parallel

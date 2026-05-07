@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+>
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory>tests/Feature</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+    </source>
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
+        <env name="BROADCAST_CONNECTION" value="null"/>
+        <env name="CACHE_STORE" value="array"/>
+        <!--
+          Tests run against Postgres because the schema uses jsonb, partial
+          unique indexes, and pgvector — none of which work under sqlite.
+          Create the test DB once:
+              createdb football_intel_test
+              psql football_intel_test -c "CREATE EXTENSION vector; CREATE EXTENSION pg_trgm;"
+          Override DB_USERNAME / DB_PASSWORD here if your local Postgres
+          requires different credentials (CI sets them via env vars).
+        -->
+        <env name="DB_CONNECTION" value="pgsql"/>
+        <env name="DB_HOST" value="127.0.0.1"/>
+        <env name="DB_PORT" value="5432"/>
+        <env name="DB_DATABASE" value="football_intel_test"/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="SESSION_DRIVER" value="array"/>
+        <env name="PULSE_ENABLED" value="false"/>
+        <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <!--
+          AI providers default to anthropic in tests so the laravel/ai path
+          runs (and gets faked via DocumentClassifier::fake / etc.). Tests
+          that exercise the n8n path opt in by overriding the config().
+          Without these, a developer with AI_PROVIDER_CLASSIFIER=n8n in
+          their local .env would see the suite fail because n8n isn't a
+          laravel/ai driver — App\Services\Ai\AgentRouter routes around
+          laravel/ai entirely for that provider.
+        -->
+        <env name="AI_PROVIDER_CLASSIFIER" value="anthropic"/>
+        <env name="AI_PROVIDER_EXTRACTOR" value="anthropic"/>
+        <env name="AI_PROVIDER_NUTRITIONIST" value="anthropic"/>
+        <env name="AI_PROVIDER_VISION" value="anthropic"/>
+        <env name="AI_PROVIDER_EMBEDDING" value="voyageai"/>
+        <env name="AI_N8N_URL" value="https://n8n.example.test/webhook/test"/>
+    </php>
+</phpunit>

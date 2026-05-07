@@ -1,0 +1,28 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+    - phpstan-baseline.neon
+
+parameters:
+    level: 6
+    paths:
+        - app
+        - config
+        - database/factories
+        - database/seeders
+        - routes
+        - tests
+
+    excludePaths:
+        - database/migrations/0001_01_01_*
+        - database/migrations/2025_08_14_170933_add_two_factor_columns_to_users_table.php
+
+    # Catch stale ignore patterns so the baseline doesn't rot silently
+    reportUnmatchedIgnoredErrors: true
+
+    # Parallel workers inherit PHP's default 128M memory_limit which crashes
+    # mid-analysis. Single-process avoids that; phpstan is fast enough that
+    # the serial cost is negligible for a project this size.
+    parallel:
+        maximumNumberOfProcesses: 1
+
+    tmpDir: .phpstan.cache
