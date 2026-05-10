@@ -28,7 +28,10 @@ it('registers pgvector and pg_trgm extensions', function (): void {
     expect($extensions)
         ->toContain('vector')
         ->toContain('pg_trgm');
-});
+})->skip(
+    fn (): bool => DB::connection()->getDriverName() !== 'pgsql',
+    'pg_extension introspection is Postgres-only — pgvector/pg_trgm are the production stack.'
+);
 
 it('seeds the 8 canonical record categories inline with the migration', function (): void {
     $slugs = RecordCategory::orderBy('sort_order')->pluck('slug')->all();
@@ -63,4 +66,7 @@ it('enforces partial unique indexes on players so soft-deleted rows free up valu
         'players_phone_unique_active',
         'players_email_unique_active',
     );
-});
+})->skip(
+    fn (): bool => DB::connection()->getDriverName() !== 'pgsql',
+    'Partial indexes are Postgres-only; on MySQL the migrations fall back to plain UNIQUE.'
+);

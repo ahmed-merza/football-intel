@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('player_records', function (Blueprint $table) {
+        $jsonType = DB::connection()->getDriverName() === 'pgsql' ? 'jsonb' : 'json';
+
+        Schema::create('player_records', function (Blueprint $table) use ($jsonType) {
             $table->id();
 
             $table->foreignId('player_id')
@@ -34,11 +37,11 @@ return new class extends Migration
             // because the record_metrics fan-out + dashboard queries need to
             // read individual fields. Protection at rest is delegated to
             // disk/backup-level encryption (Postgres TDE / encrypted disk).
-            $table->jsonb('extracted');
+            $table->{$jsonType}('extracted');
 
             // Nutritionist Assistant output (blood + body combined analysis).
             // Same unencrypted-but-disk-protected rationale as `extracted`.
-            $table->jsonb('analysis')->nullable();
+            $table->{$jsonType}('analysis')->nullable();
             $table->timestampTz('analysis_generated_at')->nullable();
 
             // LLM narrative / one-paragraph summary of the record itself

@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('knowledge_documents', function (Blueprint $table) {
+        $jsonType = DB::connection()->getDriverName() === 'pgsql' ? 'jsonb' : 'json';
+
+        Schema::create('knowledge_documents', function (Blueprint $table) use ($jsonType) {
             $table->id();
 
             $table->string('title', 255);
@@ -25,7 +28,7 @@ return new class extends Migration
             $table->string('language', 10)->default('en');
 
             // author, date, tags, etc.
-            $table->jsonb('metadata')->nullable();
+            $table->{$jsonType}('metadata')->nullable();
 
             $table->foreignId('uploaded_by')->nullable()
                 ->constrained('users')->nullOnDelete();

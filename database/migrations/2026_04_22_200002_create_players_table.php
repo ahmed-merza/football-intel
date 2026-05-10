@@ -36,16 +36,27 @@ return new class extends Migration
 
         // Partial unique indexes — soft-deleted rows can keep their values without
         // blocking a replacement. Raw SQL because Laravel's Schema DSL doesn't
-        // support `WHERE` clauses on indexes.
-        DB::statement(
-            'CREATE UNIQUE INDEX players_player_code_unique_active ON players (player_code) WHERE deleted_at IS NULL AND player_code IS NOT NULL'
-        );
-        DB::statement(
-            'CREATE UNIQUE INDEX players_phone_unique_active ON players (phone) WHERE deleted_at IS NULL AND phone IS NOT NULL'
-        );
-        DB::statement(
-            'CREATE UNIQUE INDEX players_email_unique_active ON players (email) WHERE deleted_at IS NULL AND email IS NOT NULL'
-        );
+        // support `WHERE` clauses on indexes. MySQL/MariaDB don't support partial
+        // indexes, so on those drivers we fall back to a plain UNIQUE (which still
+        // permits multiple NULLs on nullable columns); soft-delete + reuse of the
+        // same value is a dev-only edge case there.
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::statement(
+                'CREATE UNIQUE INDEX players_player_code_unique_active ON players (player_code) WHERE deleted_at IS NULL AND player_code IS NOT NULL'
+            );
+            DB::statement(
+                'CREATE UNIQUE INDEX players_phone_unique_active ON players (phone) WHERE deleted_at IS NULL AND phone IS NOT NULL'
+            );
+            DB::statement(
+                'CREATE UNIQUE INDEX players_email_unique_active ON players (email) WHERE deleted_at IS NULL AND email IS NOT NULL'
+            );
+        } else {
+            Schema::table('players', function (Blueprint $table) {
+                $table->unique('player_code', 'players_player_code_unique_active');
+                $table->unique('phone', 'players_phone_unique_active');
+                $table->unique('email', 'players_email_unique_active');
+            });
+        }
     }
 
     public function down(): void

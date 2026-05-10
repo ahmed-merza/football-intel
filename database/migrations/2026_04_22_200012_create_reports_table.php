@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('reports', function (Blueprint $table) {
+        $jsonType = DB::connection()->getDriverName() === 'pgsql' ? 'jsonb' : 'json';
+
+        Schema::create('reports', function (Blueprint $table) use ($jsonType) {
             $table->id();
 
             // null for team-wide / aggregate reports
@@ -32,7 +35,7 @@ return new class extends Migration
                 ->constrained('users')->nullOnDelete();
 
             // Which sections were included, narrative model, KB doc ids cited, etc.
-            $table->jsonb('meta')->nullable();
+            $table->{$jsonType}('meta')->nullable();
 
             $table->timestampsTz();
             $table->softDeletesTz();

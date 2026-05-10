@@ -46,9 +46,18 @@ return new class extends Migration
 
         // Partial unique on sha256 — dedupe only applies to live attachments;
         // soft-deleted rows keep the hash so we can still audit / recover.
-        DB::statement(
-            'CREATE UNIQUE INDEX attachments_sha256_unique_active ON attachments (sha256) WHERE deleted_at IS NULL'
-        );
+        // MySQL/MariaDB don't support partial indexes; fall back to plain UNIQUE
+        // there (re-uploading a soft-deleted attachment will need a hard purge
+        // first, acceptable for dev).
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::statement(
+                'CREATE UNIQUE INDEX attachments_sha256_unique_active ON attachments (sha256) WHERE deleted_at IS NULL'
+            );
+        } else {
+            Schema::table('attachments', function (Blueprint $table) {
+                $table->unique('sha256', 'attachments_sha256_unique_active');
+            });
+        }
     }
 
     public function down(): void

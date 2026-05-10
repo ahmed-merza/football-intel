@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -17,7 +18,9 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('nutritionist_analyses', function (Blueprint $table) {
+        $jsonType = DB::connection()->getDriverName() === 'pgsql' ? 'jsonb' : 'json';
+
+        Schema::create('nutritionist_analyses', function (Blueprint $table) use ($jsonType) {
             $table->id();
             $table->foreignId('player_id')
                 ->constrained('players')
@@ -39,7 +42,7 @@ return new class extends Migration
             // App\Ai\Agents\NutritionistAssistant::schema). Kept as
             // jsonb so dashboard queries can read individual fields
             // without deserialising the whole blob.
-            $table->jsonb('payload')->nullable();
+            $table->{$jsonType}('payload')->nullable();
 
             // Source records that fed this analysis — lets the admin
             // jump back to the underlying blood / InBody, and lets

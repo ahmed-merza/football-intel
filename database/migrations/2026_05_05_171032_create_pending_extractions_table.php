@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -21,7 +22,10 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('pending_extractions', function (Blueprint $table): void {
+        $isPg = DB::connection()->getDriverName() === 'pgsql';
+        $jsonType = $isPg ? 'jsonb' : 'json';
+
+        Schema::create('pending_extractions', function (Blueprint $table) use ($isPg, $jsonType): void {
             $table->id();
             $table->uuid('correlation_id')->unique();
 
@@ -44,11 +48,11 @@ return new class extends Migration
             // Stored so a callback handler can re-derive whatever it
             // needs without re-hitting the source attachment, and for
             // debugging when something goes wrong.
-            $table->jsonb('request')->nullable();
+            $table->{$jsonType}('request')->nullable();
 
             // n8n response payload as we received it (sync or callback).
             // Same shape either way.
-            $table->jsonb('result')->nullable();
+            $table->{$jsonType}('result')->nullable();
 
             // Humanised error if the call failed (sync 5xx other than
             // 504, JSON parse error, schema mismatch, etc.).
@@ -59,8 +63,16 @@ return new class extends Migration
 
             // Reaper anchor — anything older than this in `pending` gets
             // marked expired so the UI stops showing "extraction pending"
-            // forever when a callback never arrives.
-            $table->timestamp('expires_at');
+            // forever when a callback never arrives. NOT NULL with no default
+            // on Postgres (the app must always set it explicitly — a forgotten
+            // insert should fail loudly). MariaDB strict mode rejects NOT NULL
+            // timestamps without a default, so we fall back to useCurrent there
+            // — accept silent NOW() fallback as the dev-only cost.
+            if ($isPg) {
+                $table->timestamp('expires_at');
+            } else {
+                $table->timestamp('expires_at')->useCurrent();
+            }
 
             $table->index(['record_id', 'status']);
             $table->index('expires_at');

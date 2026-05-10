@@ -11,7 +11,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('knowledge_chunks', function (Blueprint $table) {
+        $driver = DB::connection()->getDriverName();
+        $isPg = $driver === 'pgsql';
+        $jsonType = $isPg ? 'jsonb' : 'json';
+
+        Schema::create('knowledge_chunks', function (Blueprint $table) use ($isPg, $jsonType) {
             $table->id();
 
             $table->foreignId('document_id')
@@ -22,11 +26,17 @@ return new class extends Migration
             $table->text('content');
 
             // 1024-dim to match Voyage voyage-3-large. Swap via a new migration
-            // + re-embed job if we switch providers.
-            $table->vector('embedding', 1024);
+            // + re-embed job if we switch providers. On non-pgsql we fall back
+            // to a long-text column — the RAG / similarity-search features here
+            // require pgvector, so this is a structural placeholder only.
+            if ($isPg) {
+                $table->vector('embedding', 1024);
+            } else {
+                $table->longText('embedding')->nullable();
+            }
 
             // section title, page number, token span, original doc position
-            $table->jsonb('metadata')->nullable();
+            $table->{$jsonType}('metadata')->nullable();
 
             $table->timestampsTz();
             $table->softDeletesTz();
