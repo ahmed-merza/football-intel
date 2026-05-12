@@ -76,6 +76,16 @@ class ClassifyAttachmentJob implements ShouldQueue
 
         $submission = $attachment->submission;
 
+        // Idempotency guard: queues are at-least-once, so a worker crash
+        // after the DB commit (or a Horizon retry click) can re-enter
+        // handle() for an attachment that's already been classified.
+        // Bail before re-running the LLM and creating a second record.
+        // The unique index on primary_attachment_id is the belt-and-braces
+        // backstop if two workers race past this check.
+        if (PlayerRecord::where('primary_attachment_id', $attachment->id)->exists()) {
+            return;
+        }
+
         if (empty($attachment->extracted_text)) {
             // No text → can't classify automatically. Route to review.
             $submission->update(['status' => Submission::STATUS_NEEDS_REVIEW]);
