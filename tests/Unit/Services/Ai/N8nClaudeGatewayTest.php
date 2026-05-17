@@ -4,14 +4,22 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Services\Ai;
 
+use App\Models\PendingExtraction;
+use App\Services\Ai\CallbackPendingException;
 use App\Services\Ai\N8nClaudeGateway;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 use Tests\TestCase;
 
 class N8nClaudeGatewayTest extends TestCase
 {
+    use RefreshDatabase;
+
     private const URL = 'https://n8n.example.com/webhook/abc';
+
+    private const CALLBACK_URL = 'https://app.example.com/webhooks/n8n/extraction';
 
     protected function setUp(): void
     {
@@ -19,6 +27,7 @@ class N8nClaudeGatewayTest extends TestCase
         config([
             'ai.providers.n8n.url' => self::URL,
             'ai.providers.n8n.timeout' => 60,
+            'ai.providers.n8n.callback_url' => self::CALLBACK_URL,
         ]);
     }
 
@@ -137,6 +146,58 @@ class N8nClaudeGatewayTest extends TestCase
 
         $this->expectException(RuntimeException::class);
         (new N8nClaudeGateway)->send('x', 'y');
+    }
+
+    public function test_read_timeout_throws_callback_pending_and_keeps_row_pending(): void
+    {
+        // Simulates the cURL 28 read timeout we see when n8n's nginx
+        // doesn't return a clean 504 — Guzzle just gives up waiting and
+        // wraps the failure as ConnectionException. n8n's still running
+        // upstream, so we must NOT mark the pending row as failed.
+        Http::fake(function (): void {
+            throw new ConnectionException('cURL error 28: Operation timed out after 60000 ms');
+        });
+
+        try {
+            (new N8nClaudeGateway)->send(systemPrompt: 'x', userPrompt: 'y');
+            $this->fail('Expected CallbackPendingException');
+        } catch (CallbackPendingException $e) {
+            $this->assertNotEmpty($e->correlationId);
+        }
+
+        $pending = PendingExtraction::firstOrFail();
+        $this->assertSame(PendingExtraction::STATUS_PENDING, $pending->status);
+        $this->assertNull($pending->processed_at);
+    }
+
+    public function test_connect_failure_marks_row_failed_and_rethrows(): void
+    {
+        // DNS / connect-refused / TLS errors mean n8n never received the
+        // request, so no callback is coming. Fail loudly so Horizon's
+        // failed() hook fires.
+        Http::fake(function (): void {
+            throw new ConnectionException('cURL error 6: Could not resolve host: n8n.example.com');
+        });
+
+        $this->expectException(ConnectionException::class);
+
+        try {
+            (new N8nClaudeGateway)->send(systemPrompt: 'x', userPrompt: 'y');
+        } finally {
+            $pending = PendingExtraction::firstOrFail();
+            $this->assertSame(PendingExtraction::STATUS_FAILED, $pending->status);
+        }
+    }
+
+    public function test_http_504_throws_callback_pending(): void
+    {
+        Http::fake([
+            self::URL => Http::response('gateway timeout', 504),
+        ]);
+
+        $this->expectException(CallbackPendingException::class);
+
+        (new N8nClaudeGateway)->send(systemPrompt: 'x', userPrompt: 'y');
     }
 
     public function test_request_uses_get_with_body_and_includes_schema_when_provided(): void

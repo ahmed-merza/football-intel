@@ -28,6 +28,7 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property string $correlation_id
  * @property int|null $record_id
+ * @property int|null $analysis_id
  * @property string $kind
  * @property string $status
  * @property array<string, mixed>|null $request
@@ -38,6 +39,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $processed_at
  * @property Carbon $expires_at
  * @property-read PlayerRecord|null $record
+ * @property-read NutritionistAnalysis|null $analysis
  */
 class PendingExtraction extends Model
 {
@@ -57,9 +59,12 @@ class PendingExtraction extends Model
 
     public const KIND_CLASSIFIER = 'classifier';
 
+    public const KIND_NUTRITIONIST_ANALYSIS = 'nutritionist_analysis';
+
     protected $fillable = [
         'correlation_id',
         'record_id',
+        'analysis_id',
         'kind',
         'status',
         'request',
@@ -80,6 +85,12 @@ class PendingExtraction extends Model
     public function record(): BelongsTo
     {
         return $this->belongsTo(PlayerRecord::class, 'record_id');
+    }
+
+    /** @return BelongsTo<NutritionistAnalysis, $this> */
+    public function analysis(): BelongsTo
+    {
+        return $this->belongsTo(NutritionistAnalysis::class, 'analysis_id');
     }
 
     public function isTerminal(): bool

@@ -235,21 +235,7 @@ function AnalysisCard({
     }
 
     if (analysis.status === 'failed') {
-        return (
-            <Card className="border-destructive/40 bg-destructive/5">
-                <CardContent className="flex flex-col gap-2 py-4 text-sm">
-                    <div className="flex items-center gap-2 font-medium text-destructive">
-                        <XCircle className="size-4" />
-                        Analysis failed
-                    </div>
-                    {analysis.error && (
-                        <p className="text-muted-foreground">
-                            {analysis.error}
-                        </p>
-                    )}
-                </CardContent>
-            </Card>
-        );
+        return <FailedAnalysisCard analysis={analysis} />;
     }
 
     const payload = analysis.payload ?? {};
@@ -309,6 +295,52 @@ function AnalysisCard({
                     payload.recommendations.length > 0 && (
                         <RecommendationsList recs={payload.recommendations} />
                     )}
+            </CardContent>
+        </Card>
+    );
+}
+
+function FailedAnalysisCard({ analysis }: { analysis: Analysis }) {
+    const [retrying, setRetrying] = useState(false);
+
+    const retry = (): void => {
+        setRetrying(true);
+        router.post(
+            `/nutritionist-analyses/${analysis.id}/retry`,
+            {},
+            {
+                preserveScroll: true,
+                onFinish: () => setRetrying(false),
+            },
+        );
+    };
+
+    return (
+        <Card className="border-destructive/40 bg-destructive/5">
+            <CardContent className="flex flex-col gap-3 py-4 text-sm">
+                <div className="flex items-center gap-2 font-medium text-destructive">
+                    <XCircle className="size-4" />
+                    Analysis failed
+                </div>
+                {analysis.error && (
+                    <p className="text-muted-foreground">{analysis.error}</p>
+                )}
+                <div>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={retry}
+                        disabled={retrying}
+                    >
+                        <RefreshCw
+                            className={
+                                'size-3.5 ' + (retrying ? 'animate-spin' : '')
+                            }
+                        />
+                        {retrying ? 'Retrying…' : 'Retry'}
+                    </Button>
+                </div>
             </CardContent>
         </Card>
     );

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Models\NutritionistAnalysis;
 use App\Models\PendingExtraction;
 use App\Models\PlayerRecord;
 use App\Models\RecordCategory;
@@ -17,10 +18,14 @@ use Illuminate\Support\Str;
 use Throwable;
 
 /**
- * Receives the asynchronous result of an n8n extraction call. n8n always
- * tries to respond synchronously to our outbound request, but when the
- * proxy in front of n8n 504s before Claude finishes the sync response is
- * lost — n8n then POSTs the result here so we can close the loop.
+ * Receives the asynchronous result of any n8n call — document extractions
+ * AND nutritionist analyses both flow through here. n8n always tries to
+ * respond synchronously to our outbound request, but when the proxy in
+ * front of n8n times out before Claude finishes (or our own client read
+ * timeout fires), the sync response is lost — n8n then POSTs the result
+ * here so we can close the loop. Dispatch is by `kind` on the pending row:
+ * extraction kinds apply to a PlayerRecord; nutritionist_analysis applies
+ * to a NutritionistAnalysis.
  *
  * Idempotency: a callback for an already-completed correlation is a
  * no-op (200 OK). The sync HTTP response is the fast path; this is the
@@ -99,28 +104,29 @@ class N8nWebhookController extends Controller
             return response()->json(['error' => 'parse_failed'], 422);
         }
 
-        // Apply to the owning record (if any) via the kind-specific
-        // applier. classifier callbacks have no owning record yet —
-        // they're consumed by ClassifyAttachmentJob, which we'll wire
-        // for async in a follow-up. For now we just close the row.
-        if ($pending->record_id !== null) {
-            /** @var PlayerRecord|null $record */
-            $record = PlayerRecord::find($pending->record_id);
-
-            if ($record !== null) {
-                try {
+        // Two owner shapes: extraction kinds carry a record_id, the
+        // nutritionist_analysis kind carries an analysis_id. Dispatch on
+        // whichever is set; missing owners are a no-op (already-deleted
+        // row, classifier kind).
+        try {
+            if ($pending->kind === PendingExtraction::KIND_NUTRITIONIST_ANALYSIS) {
+                $this->applyToAnalysis($pending, $parsed);
+            } elseif ($pending->record_id !== null) {
+                /** @var PlayerRecord|null $record */
+                $record = PlayerRecord::find($pending->record_id);
+                if ($record !== null) {
                     $this->applyByKind($pending->kind, $record, $parsed);
-                } catch (Throwable $e) {
-                    $pending->update([
-                        'status' => PendingExtraction::STATUS_FAILED,
-                        'error' => 'apply_failed: '.mb_substr($e->getMessage(), 0, 500),
-                        'result' => $parsed,
-                        'processed_at' => Carbon::now(),
-                    ]);
-
-                    return response()->json(['error' => 'apply_failed'], 500);
                 }
             }
+        } catch (Throwable $e) {
+            $pending->update([
+                'status' => PendingExtraction::STATUS_FAILED,
+                'error' => 'apply_failed: '.mb_substr($e->getMessage(), 0, 500),
+                'result' => $parsed,
+                'processed_at' => Carbon::now(),
+            ]);
+
+            return response()->json(['error' => 'apply_failed'], 500);
         }
 
         $pending->update([
@@ -152,6 +158,40 @@ class N8nWebhookController extends Controller
             // will pick up async support in its own commit.
             default => null,
         };
+    }
+
+    /**
+     * Mirror the inline-success path in GenerateNutritionistAnalysisJob:
+     * promote the pre-allocated analysis row from pending to completed
+     * and stash the model output. Already-terminal rows (admin re-ran
+     * before the callback landed, or a sync response beat us here) are
+     * a no-op so we don't clobber fresher state.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function applyToAnalysis(PendingExtraction $pending, array $payload): void
+    {
+        if ($pending->analysis_id === null) {
+            return;
+        }
+
+        /** @var NutritionistAnalysis|null $analysis */
+        $analysis = NutritionistAnalysis::find($pending->analysis_id);
+        if ($analysis === null || $analysis->status !== NutritionistAnalysis::STATUS_PENDING) {
+            return;
+        }
+
+        $summary = is_string($payload['summary'] ?? null)
+            ? mb_substr($payload['summary'], 0, 1000)
+            : null;
+
+        $analysis->update([
+            'status' => NutritionistAnalysis::STATUS_COMPLETED,
+            'summary_text' => $summary,
+            'payload' => $payload,
+            'generated_at' => Carbon::now(),
+            'error' => null,
+        ]);
     }
 
     private function verifySecret(Request $request): bool

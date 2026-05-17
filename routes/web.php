@@ -71,6 +71,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // tab on the profile renders the latest + history.
     Route::post('players/{player}/nutritionist-analyses', [NutritionistAnalysisController::class, 'store'])
         ->name('players.nutritionist-analyses.store');
+    // Re-run a previously failed analysis in place — reuses the same
+    // row so the history stays stable (vs. clicking Run analysis again,
+    // which would create a new row).
+    Route::post('nutritionist-analyses/{analysis}/retry', [NutritionistAnalysisController::class, 'retry'])
+        ->name('nutritionist-analyses.retry');
 
     // Review queue — admin inbox for low-confidence classifications and
     // misclassified records that flowed through the AI pipeline.

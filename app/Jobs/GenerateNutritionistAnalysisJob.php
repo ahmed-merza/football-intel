@@ -6,11 +6,13 @@ namespace App\Jobs;
 
 use App\Ai\Agents\NutritionistAssistant;
 use App\Models\NutritionistAnalysis;
+use App\Models\PendingExtraction;
 use App\Models\Player;
 use App\Models\PlayerRecord;
 use App\Models\RecordCategory;
 use App\Services\Ai\AgentErrorMessage;
 use App\Services\Ai\AgentRouter;
+use App\Services\Ai\CallbackPendingException;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -72,6 +74,23 @@ class GenerateNutritionistAnalysisJob implements ShouldQueue
             return;
         }
 
+        // Self-healing invariant for retries (CLI queue:retry today, a UI
+        // retry button later): while this job is running the row must
+        // show pending. A retry on a previously-failed row resets the
+        // error so the UI stops shouting "Analysis failed" while the new
+        // attempt is actually in flight. A retry on a row that's already
+        // completed (callback landed, manual fix, whatever) is a no-op —
+        // we don't clobber known-good results.
+        if ($analysis->status === NutritionistAnalysis::STATUS_COMPLETED) {
+            return;
+        }
+        if ($analysis->status === NutritionistAnalysis::STATUS_FAILED) {
+            $analysis->update([
+                'status' => NutritionistAnalysis::STATUS_PENDING,
+                'error' => null,
+            ]);
+        }
+
         $player = $analysis->player;
         if ($player === null) {
             $this->markFailed($analysis, 'Player no longer exists.');
@@ -101,7 +120,24 @@ class GenerateNutritionistAnalysisJob implements ShouldQueue
 
         try {
             /** @var array<string, mixed> $payload */
-            $payload = $router->send($agent, $userPrompt);
+            $payload = $router->send($agent, $userPrompt, [
+                'kind' => PendingExtraction::KIND_NUTRITIONIST_ANALYSIS,
+                'analysis_id' => $analysis->id,
+            ]);
+        } catch (CallbackPendingException $e) {
+            // Same async-insurance path as the extractor jobs: the sync
+            // call timed out but n8n's still working upstream and will
+            // hit our callback when done. Leave the analysis row in
+            // pending state — the webhook handler will promote it to
+            // completed (or the reaper will mark it failed if no callback
+            // ever lands). No Horizon retry; that would just re-run the
+            // expensive call.
+            Log::info('NutritionistAssistant sync timed out, awaiting callback', [
+                'analysis_id' => $analysis->id,
+                'correlation_id' => $e->correlationId,
+            ]);
+
+            return;
         } catch (Throwable $e) {
             Log::error('NutritionistAssistant threw', [
                 'analysis_id' => $analysis->id,

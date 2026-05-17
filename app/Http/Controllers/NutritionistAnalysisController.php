@@ -47,6 +47,46 @@ class NutritionistAnalysisController extends Controller
         return back();
     }
 
+    /**
+     * Re-run a failed analysis in place. Keeps the same row (so previous
+     * runs in the history don't get a duplicate) but resets status to
+     * pending and clears the error message — the UI immediately stops
+     * showing "Analysis failed" and switches to the in-flight state.
+     *
+     * The job itself also has the failed→pending reset as a
+     * belt-and-braces invariant for non-UI retry paths (CLI
+     * queue:retry), but doing it here too means the UI flips state
+     * instantly on click instead of waiting for the worker to pick up.
+     *
+     * Refuses non-failed rows — there's nothing to retry on completed
+     * (would clobber the result) or pending (job is already running).
+     */
+    public function retry(NutritionistAnalysis $analysis): RedirectResponse
+    {
+        if ($analysis->status !== NutritionistAnalysis::STATUS_FAILED) {
+            Inertia::flash('toast', [
+                'type' => 'error',
+                'message' => __('Only failed analyses can be retried.'),
+            ]);
+
+            return back();
+        }
+
+        $analysis->update([
+            'status' => NutritionistAnalysis::STATUS_PENDING,
+            'error' => null,
+        ]);
+
+        GenerateNutritionistAnalysisJob::dispatch($analysis->id);
+
+        Inertia::flash('toast', [
+            'type' => 'success',
+            'message' => __('Retry queued — it will appear here once the assistant finishes.'),
+        ]);
+
+        return back();
+    }
+
     private function hasRequiredRecords(Player $player): bool
     {
         $hasBlood = $player->records()

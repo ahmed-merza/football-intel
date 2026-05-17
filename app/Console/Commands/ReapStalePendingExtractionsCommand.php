@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use App\Models\NutritionistAnalysis;
 use App\Models\PendingExtraction;
 use App\Models\PlayerRecord;
 use Illuminate\Console\Command;
@@ -39,7 +40,7 @@ class ReapStalePendingExtractionsCommand extends Command
         $now = Carbon::now();
         $stale = PendingExtraction::where('status', PendingExtraction::STATUS_PENDING)
             ->where('expires_at', '<', $now)
-            ->with('record')
+            ->with(['record', 'analysis'])
             ->get();
 
         if ($stale->isEmpty()) {
@@ -79,7 +80,10 @@ class ReapStalePendingExtractionsCommand extends Command
             ]);
             $expired++;
 
-            if ($this->recoverOwningRecord($pending->record)) {
+            $ownerRecovered = $pending->kind === PendingExtraction::KIND_NUTRITIONIST_ANALYSIS
+                ? $this->recoverOwningAnalysis($pending->analysis)
+                : $this->recoverOwningRecord($pending->record);
+            if ($ownerRecovered) {
                 $recovered++;
             }
         }
@@ -127,6 +131,26 @@ class ReapStalePendingExtractionsCommand extends Command
             'Extraction timed out — the callback from the AI proxy never arrived. Re-extract to try again.';
 
         $record->update(['extracted' => $extracted]);
+
+        return true;
+    }
+
+    /**
+     * Mirror of recoverOwningRecord for NutritionistAnalysis rows that
+     * have been waiting on a callback that never arrived. Flipping
+     * status=failed unsticks the UI so the admin can re-run from the
+     * Player page instead of seeing an indefinite "Processing…" badge.
+     */
+    private function recoverOwningAnalysis(?NutritionistAnalysis $analysis): bool
+    {
+        if ($analysis === null || $analysis->status !== NutritionistAnalysis::STATUS_PENDING) {
+            return false;
+        }
+
+        $analysis->update([
+            'status' => NutritionistAnalysis::STATUS_FAILED,
+            'error' => 'Analysis timed out — the callback from the AI proxy never arrived. Run again to retry.',
+        ]);
 
         return true;
     }

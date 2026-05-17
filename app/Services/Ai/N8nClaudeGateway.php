@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Ai;
 
 use App\Models\PendingExtraction;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -43,10 +44,11 @@ class N8nClaudeGateway
     /**
      * @param  array<string, mixed>|null  $schema  JSON-Schema-shaped object describing
      *                                             the desired response shape; null = freeform text
-     * @param  array{kind?: string, record_id?: int|null}  $context  Hooks for the
-     *                                                               pending_extractions row so the callback handler knows what to do with
-     *                                                               the eventual result. `kind` defaults to 'unknown'; `record_id` is
-     *                                                               optional (classifier calls don't have one yet).
+     * @param  array{kind?: string, record_id?: int|null, analysis_id?: int|null}  $context  Hooks for
+     *                                                                                       the pending_extractions row so the callback handler knows what to do
+     *                                                                                       with the eventual result. `kind` defaults to 'unknown';
+     *                                                                                       `record_id` / `analysis_id` are mutually exclusive owners (extraction
+     *                                                                                       calls carry record_id, NutritionistAssistant calls carry analysis_id).
      * @return array<string, mixed> Parsed JSON from the model when $schema is set,
      *                              or ['text' => '<stdout>'] when null.
      */
@@ -64,6 +66,7 @@ class N8nClaudeGateway
         $pending = PendingExtraction::create([
             'correlation_id' => $correlationId,
             'record_id' => $context['record_id'] ?? null,
+            'analysis_id' => $context['analysis_id'] ?? null,
             'kind' => (string) ($context['kind'] ?? 'unknown'),
             'status' => PendingExtraction::STATUS_PENDING,
             'request' => [
@@ -95,10 +98,27 @@ class N8nClaudeGateway
                     'application/json',
                 )
                 ->send('GET', $url);
+        } catch (ConnectionException $e) {
+            // Two flavours of ConnectionException end up here:
+            //   - Read timeout (curl 28: "Operation timed out") — n8n
+            //     accepted the request and is still working; the callback
+            //     will eventually land. Same async-insurance path as a 504.
+            //   - Connect-level failure (DNS, connect refused, TLS) — n8n
+            //     never got the request, so no callback is coming. Fail.
+            // We can't tell them apart from the exception type alone, so
+            // fall back to the message. Worst case for a misclassified
+            // connect failure: the reaper marks it expired in 15 min.
+            if ($callbackUrl !== '' && $this->isReadTimeout($e)) {
+                throw new CallbackPendingException($correlationId, previous: $e);
+            }
+            $pending->update([
+                'status' => PendingExtraction::STATUS_FAILED,
+                'error' => mb_substr($e->getMessage(), 0, 1000),
+                'processed_at' => Carbon::now(),
+            ]);
+
+            throw $e;
         } catch (\Throwable $e) {
-            // Network-level failure (DNS, connect refused, TLS, etc.) —
-            // not a 504. n8n probably never received the request, so a
-            // callback won't arrive. Mark failed and re-throw.
             $pending->update([
                 'status' => PendingExtraction::STATUS_FAILED,
                 'error' => mb_substr($e->getMessage(), 0, 1000),
@@ -108,10 +128,11 @@ class N8nClaudeGateway
             throw $e;
         }
 
-        // 504 = nginx in front of n8n gave up before n8n responded.
-        // n8n is still running and will hit our callback when done.
-        // Surface a typed exception so the caller can react.
-        if ($response->status() === 504 && $callbackUrl !== '') {
+        // Proxy-emitted timeouts (504 from nginx, 522/524 from Cloudflare)
+        // mean the proxy gave up but n8n is still running upstream and
+        // will hit our callback when done. Surface a typed exception so
+        // the caller can react.
+        if ($callbackUrl !== '' && in_array($response->status(), [504, 522, 524], true)) {
             throw new CallbackPendingException($correlationId);
         }
 
@@ -180,6 +201,19 @@ class N8nClaudeGateway
         }
 
         return $this->parseStructuredJson($stdout);
+    }
+
+    /**
+     * Heuristic: cURL surfaces read-timeout failures as error 28
+     * ("Operation timed out"). Connect-level failures use different
+     * codes (6 = could not resolve, 7 = could not connect, 35/60 = TLS).
+     * Matching on the cURL code keeps us robust against Guzzle's
+     * message format drifting between releases.
+     */
+    private function isReadTimeout(ConnectionException $e): bool
+    {
+        return str_contains($e->getMessage(), 'cURL error 28')
+            || str_contains(strtolower($e->getMessage()), 'operation timed out');
     }
 
     /**

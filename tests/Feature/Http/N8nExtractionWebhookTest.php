@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Http;
 
+use App\Models\NutritionistAnalysis;
 use App\Models\PendingExtraction;
 use App\Models\Player;
 use App\Models\PlayerRecord;
@@ -166,6 +167,73 @@ class N8nExtractionWebhookTest extends TestCase
         $record->refresh();
         $this->assertSame('InBody 770', $record->source_lab);
         $this->assertSame(2, RecordMetric::where('record_id', $record->id)->count());
+    }
+
+    public function test_nutritionist_analysis_callback_promotes_pending_analysis_to_completed(): void
+    {
+        $analysis = NutritionistAnalysis::factory()->pending()->create();
+
+        $pending = PendingExtraction::create([
+            'correlation_id' => (string) Str::uuid(),
+            'analysis_id' => $analysis->id,
+            'kind' => PendingExtraction::KIND_NUTRITIONIST_ANALYSIS,
+            'status' => PendingExtraction::STATUS_PENDING,
+            'request' => ['has_schema' => true],
+            'expires_at' => Carbon::now()->addMinutes(15),
+        ]);
+
+        $payload = [
+            'summary' => 'Iron borderline, body composition strong.',
+            'blood_analysis' => ['key_findings' => ['Ferritin 33 ng/mL']],
+            'body_analysis' => ['key_findings' => ['BF 11.4%']],
+            'combined_insight' => 'Pre-emptive iron supplementation justified.',
+            'recommendations' => [['area' => 'supplement', 'action' => 'Iron bisglycinate 25mg']],
+            'risk_flags' => [],
+        ];
+
+        $this->postJson('/webhooks/n8n/extraction', [
+            'correlation_id' => $pending->correlation_id,
+            'result' => [['code' => 0, 'stdout' => json_encode($payload), 'stderr' => '']],
+        ], ['X-Callback-Secret' => self::SECRET])
+            ->assertOk()
+            ->assertJson(['status' => 'ok']);
+
+        $analysis->refresh();
+        $this->assertSame(NutritionistAnalysis::STATUS_COMPLETED, $analysis->status);
+        $this->assertSame('Iron borderline, body composition strong.', $analysis->summary_text);
+        // jsonb normalises key ordering, so compare canonically.
+        $this->assertEqualsCanonicalizing($payload, $analysis->payload);
+        $this->assertNotNull($analysis->generated_at);
+
+        $pending->refresh();
+        $this->assertSame(PendingExtraction::STATUS_COMPLETED, $pending->status);
+    }
+
+    public function test_nutritionist_analysis_callback_skips_when_analysis_already_terminal(): void
+    {
+        // Sync path beat the callback to the punch — the analysis is
+        // already completed. Callback must not clobber the fresher state.
+        $analysis = NutritionistAnalysis::factory()->create([
+            'status' => NutritionistAnalysis::STATUS_COMPLETED,
+            'summary_text' => 'Sync-path summary',
+        ]);
+
+        $pending = PendingExtraction::create([
+            'correlation_id' => (string) Str::uuid(),
+            'analysis_id' => $analysis->id,
+            'kind' => PendingExtraction::KIND_NUTRITIONIST_ANALYSIS,
+            'status' => PendingExtraction::STATUS_PENDING,
+            'request' => ['has_schema' => true],
+            'expires_at' => Carbon::now()->addMinutes(15),
+        ]);
+
+        $this->postJson('/webhooks/n8n/extraction', [
+            'correlation_id' => $pending->correlation_id,
+            'result' => [['code' => 0, 'stdout' => '{"summary": "Late callback"}', 'stderr' => '']],
+        ], ['X-Callback-Secret' => self::SECRET])
+            ->assertOk();
+
+        $this->assertSame('Sync-path summary', $analysis->fresh()->summary_text);
     }
 
     public function test_malformed_result_marks_pending_failed(): void

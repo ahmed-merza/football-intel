@@ -30,10 +30,10 @@ class AgentRouter
     public function __construct(private N8nClaudeGateway $n8n) {}
 
     /**
-     * @param  array{kind?: string, record_id?: int|null}  $context  Forwarded to
-     *                                                               the n8n gateway so the pending_extractions row carries enough
-     *                                                               metadata for the async-callback path. Direct-Anthropic / Ollama
-     *                                                               paths ignore context (they don't have a callback story).
+     * @param  array{kind?: string, record_id?: int|null, analysis_id?: int|null}  $context  Forwarded
+     *                                                                                       to the n8n gateway so the pending_extractions row carries enough
+     *                                                                                       metadata for the async-callback path. Direct-Anthropic / Ollama
+     *                                                                                       paths ignore context (they don't have a callback story).
      * @return array<string, mixed>
      */
     public function send(Agent $agent, string $userPrompt, array $context = []): array

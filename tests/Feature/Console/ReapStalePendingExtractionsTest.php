@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Console;
 
+use App\Models\NutritionistAnalysis;
 use App\Models\PendingExtraction;
 use App\Models\Player;
 use App\Models\PlayerRecord;
@@ -82,6 +83,45 @@ class ReapStalePendingExtractionsTest extends TestCase
         );
         // Classifier breadcrumb should still be there.
         $this->assertSame('blood_test', $extracted['classifier']['category']);
+    }
+
+    public function test_command_flips_owning_analysis_back_to_failed(): void
+    {
+        $analysis = NutritionistAnalysis::factory()->pending()->create();
+
+        PendingExtraction::create([
+            'correlation_id' => (string) Str::uuid(),
+            'analysis_id' => $analysis->id,
+            'kind' => PendingExtraction::KIND_NUTRITIONIST_ANALYSIS,
+            'status' => PendingExtraction::STATUS_PENDING,
+            'expires_at' => Carbon::now()->subMinute(),
+        ]);
+
+        $this->artisan('ai:reap-pending')->assertExitCode(0);
+
+        $analysis->refresh();
+        $this->assertSame(NutritionistAnalysis::STATUS_FAILED, $analysis->status);
+        $this->assertStringContainsString('callback', (string) $analysis->error);
+    }
+
+    public function test_command_leaves_already_completed_analysis_alone(): void
+    {
+        $analysis = NutritionistAnalysis::factory()->create([
+            'status' => NutritionistAnalysis::STATUS_COMPLETED,
+            'summary_text' => 'Already done',
+        ]);
+
+        PendingExtraction::create([
+            'correlation_id' => (string) Str::uuid(),
+            'analysis_id' => $analysis->id,
+            'kind' => PendingExtraction::KIND_NUTRITIONIST_ANALYSIS,
+            'status' => PendingExtraction::STATUS_PENDING,
+            'expires_at' => Carbon::now()->subMinute(),
+        ]);
+
+        $this->artisan('ai:reap-pending')->assertExitCode(0);
+
+        $this->assertSame(NutritionistAnalysis::STATUS_COMPLETED, $analysis->fresh()->status);
     }
 
     public function test_dry_run_does_not_write(): void
