@@ -1,5 +1,5 @@
 import { Head, Link, router } from '@inertiajs/react';
-import { ArrowUpDown, Plus, Search, Users } from 'lucide-react';
+import { ArrowUpDown, Plus, Search, Upload, Users } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { PlayerAvatar } from '@/components/domain/player-avatar';
@@ -122,12 +122,20 @@ export default function PlayersIndex({
                                   } across the federation.`}
                         </p>
                     </div>
-                    <Button asChild>
-                        <Link href="/players/create">
-                            <Plus className="size-4" />
-                            Add player
-                        </Link>
-                    </Button>
+                    <div className="flex gap-2">
+                        <Button asChild variant="outline">
+                            <Link href="/players/import">
+                                <Upload className="size-4" />
+                                Import
+                            </Link>
+                        </Button>
+                        <Button asChild>
+                            <Link href="/players/create">
+                                <Plus className="size-4" />
+                                Add player
+                            </Link>
+                        </Button>
+                    </div>
                 </header>
 
                 <div className="flex flex-wrap items-center gap-2">

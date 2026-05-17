@@ -6,6 +6,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\N8nWebhookController;
 use App\Http\Controllers\NutritionistAnalysisController;
 use App\Http\Controllers\PlayerController;
+use App\Http\Controllers\PlayerImportController;
 use App\Http\Controllers\PlayerRecordController;
 use App\Http\Controllers\ReviewController;
 use App\Http\Controllers\SubmissionController;
@@ -22,6 +23,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Hard delete is a GDPR-style purge — intentionally routed through a
     // dedicated flow later. For now the admin can only archive + restore.
     Route::get('players/search', [PlayerController::class, 'search'])->name('players.search');
+    // Bulk roster intake — CSV/XLSX upload → preview with per-row
+    // validation → confirm to commit. Defined before the resource
+    // routes so /players/import doesn't get caught by /players/{player}.
+    Route::get('players/import', [PlayerImportController::class, 'create'])
+        ->name('players.import.create');
+    Route::post('players/import/preview', [PlayerImportController::class, 'preview'])
+        ->name('players.import.preview');
+    Route::post('players/import', [PlayerImportController::class, 'store'])
+        ->name('players.import.store');
     // JSON pagination endpoint for the profile Timeline tab.
     Route::get('players/{player}/timeline', [PlayerController::class, 'timeline'])
         ->name('players.timeline');
