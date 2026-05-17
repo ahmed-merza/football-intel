@@ -9,8 +9,8 @@ use App\Models\User;
 use App\Services\PlayerImportService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
-use PhpOffice\PhpSpreadsheet\IOFactory;
-use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use OpenSpout\Common\Entity\Row;
+use OpenSpout\Writer\XLSX\Writer as XlsxWriter;
 use Tests\TestCase;
 
 class PlayerImportTest extends TestCase
@@ -187,19 +187,16 @@ class PlayerImportTest extends TestCase
         ]);
     }
 
-    public function test_xlsx_file_is_parsed_using_real_phpspreadsheet(): void
+    public function test_xlsx_file_is_parsed_using_real_openspout(): void
     {
         $admin = User::factory()->create();
 
-        $spreadsheet = new Spreadsheet();
-        $sheet = $spreadsheet->getActiveSheet();
-        $sheet->fromArray([
-            ['Name', 'Arabic name', 'Club', 'Height', 'Weight', 'National ID'],
-            ['Ahmad Naji', 'أحمد ناجي', 'Al-Riffa', '170cm', '57.7 KG', '070811709'],
-        ]);
-
         $tmp = tempnam(sys_get_temp_dir(), 'roster_').'.xlsx';
-        IOFactory::createWriter($spreadsheet, 'Xlsx')->save($tmp);
+        $writer = new XlsxWriter();
+        $writer->openToFile($tmp);
+        $writer->addRow(Row::fromValues(['Name', 'Arabic name', 'Club', 'Height', 'Weight', 'National ID']));
+        $writer->addRow(Row::fromValues(['Ahmad Naji', 'أحمد ناجي', 'Al-Riffa', '170cm', '57.7 KG', '070811709']));
+        $writer->close();
 
         $file = new UploadedFile($tmp, 'roster.xlsx', null, null, true);
 

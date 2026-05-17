@@ -6,13 +6,14 @@ namespace App\Services;
 
 use App\Models\Player;
 use Carbon\CarbonImmutable;
+use DateTimeInterface;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
-use PhpOffice\PhpSpreadsheet\IOFactory;
-use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
+use OpenSpout\Reader\CSV\Reader as CsvReader;
+use OpenSpout\Reader\ODS\Reader as OdsReader;
+use OpenSpout\Reader\XLSX\Reader as XlsxReader;
 use Throwable;
 
 /**
@@ -275,86 +276,82 @@ class PlayerImportService
      */
     private function readRows(UploadedFile $file): array
     {
-        $ext = strtolower($file->getClientOriginalExtension());
         $path = $file->getRealPath();
-
         if ($path === false) {
             return [];
         }
 
-        if ($ext === 'csv' || $ext === 'txt') {
-            return $this->readCsv($path);
+        $reader = $this->readerForExtension($file->getClientOriginalExtension());
+        if ($reader === null) {
+            return [];
         }
 
         try {
-            $reader = IOFactory::createReaderForFile($path);
-            $reader->setReadDataOnly(true);
-            $spreadsheet = $reader->load($path);
-            $sheet = $spreadsheet->getActiveSheet();
-
+            $reader->open($path);
             $rows = [];
-            foreach ($sheet->getRowIterator() as $row) {
-                $cellIterator = $row->getCellIterator();
-                $cellIterator->setIterateOnlyExistingCells(false);
+            $firstSheet = true;
 
-                $cells = [];
-                $highestColumn = $sheet->getHighestDataColumn($row->getRowIndex());
-                $maxIndex = \PhpOffice\PhpSpreadsheet\Cell\Coordinate::columnIndexFromString($highestColumn);
-
-                $i = 0;
-                foreach ($cellIterator as $cell) {
-                    if ($i >= $maxIndex) {
-                        break;
-                    }
-                    $i++;
-                    $value = $cell->getValue();
-                    // Excel stores dates as serial numbers; detect via
-                    // the format mask so "2007" (a year typed as a
-                    // number, not formatted as a date) is preserved.
-                    $format = $cell->getStyle()->getNumberFormat()->getFormatCode();
-                    if (is_numeric($value) && $format !== null && Str::contains(strtolower($format), ['y', 'm', 'd']) && ! Str::contains($format, '#')) {
-                        try {
-                            $value = ExcelDate::excelToDateTimeObject((float) $value)->format('Y-m-d');
-                        } catch (Throwable) {
-                            // Fall through and keep the raw value.
-                        }
-                    }
-
-                    $cells[] = $value === null ? '' : (string) $value;
+            foreach ($reader->getSheetIterator() as $sheet) {
+                if (! $firstSheet) {
+                    break;
                 }
-                $rows[] = $cells;
+                $firstSheet = false;
+
+                foreach ($sheet->getRowIterator() as $row) {
+                    $rows[] = $this->normalizeRowCells($row->toArray());
+                }
             }
 
             return $rows;
         } catch (Throwable) {
             return [];
+        } finally {
+            $reader->close();
         }
     }
 
-    /**
-     * @return list<list<string>>
-     */
-    private function readCsv(string $path): array
+    private function readerForExtension(string $extension): CsvReader|XlsxReader|OdsReader|null
     {
-        $rows = [];
-        $handle = fopen($path, 'r');
-        if ($handle === false) {
-            return [];
-        }
+        return match (strtolower($extension)) {
+            'csv', 'txt' => new CsvReader(),
+            'xlsx' => new XlsxReader(),
+            'ods' => new OdsReader(),
+            default => null,
+        };
+    }
 
-        $isFirst = true;
-        while (($data = fgetcsv($handle)) !== false) {
-            if ($isFirst && isset($data[0])) {
-                // Strip BOM from first cell so the first header
-                // matches HEADER_MAP cleanly.
-                $data[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) $data[0]) ?? '';
-                $isFirst = false;
+    /**
+     * Openspout returns natively typed cell values — dates as
+     * `DateTimeInterface`, numbers as `int|float`, blanks as `null`.
+     * Coerce them all into strings so the downstream column inference
+     * and regexes have a uniform shape to work with.
+     *
+     * @param  list<mixed>  $cells
+     * @return list<string>
+     */
+    private function normalizeRowCells(array $cells): array
+    {
+        $out = [];
+        foreach ($cells as $value) {
+            if ($value === null) {
+                $out[] = '';
+
+                continue;
             }
-            $rows[] = array_map(static fn ($v): string => $v === null ? '' : (string) $v, $data);
-        }
-        fclose($handle);
+            if ($value instanceof DateTimeInterface) {
+                $out[] = $value->format('Y-m-d');
 
-        return $rows;
+                continue;
+            }
+            $out[] = (string) $value;
+        }
+        // Strip BOM from the first cell of the first row — CSVs saved
+        // with a BOM otherwise prepend it to the first header name.
+        if (isset($out[0])) {
+            $out[0] = preg_replace('/^\xEF\xBB\xBF/u', '', $out[0]) ?? $out[0];
+        }
+
+        return $out;
     }
 
     /**
