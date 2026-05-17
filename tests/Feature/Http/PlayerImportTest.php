@@ -119,6 +119,82 @@ class PlayerImportTest extends TestCase
         );
     }
 
+    public function test_existing_name_match_is_a_soft_warning_not_an_error(): void
+    {
+        $admin = User::factory()->create();
+        Player::factory()->create([
+            'full_name' => 'Ahmad Naji',
+            'name_ar' => 'أحمد ناجي',
+        ]);
+
+        $csv = "Name,Arabic name,National ID\n"
+            ."Ahmad Naji,أحمد ناجي,070811709\n";
+
+        $file = UploadedFile::fake()->createWithContent('roster.csv', $csv);
+
+        $response = $this->actingAs($admin)->post('/players/import/preview', [
+            'file' => $file,
+        ]);
+
+        $response->assertInertia(fn ($page) => $page
+            ->where('preview.summary.valid', 1)
+            ->where('preview.summary.invalid', 0)
+            ->where('preview.summary.warned', 1)
+            ->has('preview.rows.0.warnings.0')
+            ->where('preview.rows.0.errors', [])
+        );
+    }
+
+    public function test_same_name_appearing_twice_in_file_is_warned(): void
+    {
+        $admin = User::factory()->create();
+
+        $csv = "Name\nAhmad Naji\nAhmad Naji\n";
+        $file = UploadedFile::fake()->createWithContent('roster.csv', $csv);
+
+        $response = $this->actingAs($admin)->post('/players/import/preview', [
+            'file' => $file,
+        ]);
+
+        $response->assertInertia(fn ($page) => $page
+            ->where('preview.summary.valid', 2)
+            ->where('preview.summary.warned', 1)
+            ->where('preview.rows.0.warnings', [])
+            ->has('preview.rows.1.warnings.0')
+        );
+    }
+
+    public function test_warning_does_not_block_import(): void
+    {
+        $admin = User::factory()->create();
+        Player::factory()->create(['full_name' => 'Ahmad Naji']);
+
+        $rows = [[
+            'normalized' => [
+                'full_name' => 'Ahmad Naji',
+                'name_ar' => null,
+                'club' => null,
+                'position' => null,
+                'date_of_birth' => null,
+                'nationality' => null,
+                'height_cm' => null,
+                'weight_kg' => null,
+                'preferred_foot' => null,
+                'player_code' => null,
+                'phone' => null,
+                'email' => null,
+                'status' => 'active',
+            ],
+        ]];
+
+        $response = $this->actingAs($admin)->post('/players/import', [
+            'rows' => $rows,
+        ]);
+
+        $response->assertRedirect(route('players.index'));
+        $this->assertSame(2, Player::where('full_name', 'Ahmad Naji')->count());
+    }
+
     public function test_duplicate_against_existing_player_is_flagged(): void
     {
         $admin = User::factory()->create();

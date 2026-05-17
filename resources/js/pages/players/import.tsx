@@ -1,5 +1,6 @@
 import { Head, Link, router, useForm } from '@inertiajs/react';
 import {
+    AlertCircle,
     AlertTriangle,
     ArrowLeft,
     CheckCircle2,
@@ -42,6 +43,7 @@ type PreviewRow = {
     row_number: number;
     normalized: NormalizedRow;
     errors: Record<string, string[]>;
+    warnings: string[];
     duplicate_of_row: number | null;
 };
 
@@ -50,7 +52,12 @@ type Preview = {
     headers: string[];
     mapping: Record<keyof NormalizedRow | string, number | null>;
     rows: PreviewRow[];
-    summary: { total: number; valid: number; invalid: number };
+    summary: {
+        total: number;
+        valid: number;
+        invalid: number;
+        warned: number;
+    };
 };
 
 type PageProps = {
@@ -239,9 +246,10 @@ function UploadStep() {
 function PreviewStep({ preview }: { preview: Preview }) {
     const [rows, setRows] = useState<PreviewRow[]>(preview.rows);
 
-    const { validRows, invalidRows } = useMemo(() => {
+    const { validRows, invalidRows, warnedRows } = useMemo(() => {
         const valid: PreviewRow[] = [];
         const invalid: PreviewRow[] = [];
+        const warned: PreviewRow[] = [];
 
         for (const row of rows) {
             if (Object.keys(row.errors).length === 0) {
@@ -249,9 +257,17 @@ function PreviewStep({ preview }: { preview: Preview }) {
             } else {
                 invalid.push(row);
             }
+
+            if (row.warnings.length > 0) {
+                warned.push(row);
+            }
         }
 
-        return { validRows: valid, invalidRows: invalid };
+        return {
+            validRows: valid,
+            invalidRows: invalid,
+            warnedRows: warned,
+        };
     }, [rows]);
 
     // useForm starts empty — `transform` rebuilds the payload from the
@@ -274,7 +290,7 @@ function PreviewStep({ preview }: { preview: Preview }) {
 
     return (
         <form onSubmit={submit} className="flex flex-col gap-4">
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <SummaryStat
                     label="Total rows"
                     value={preview.summary.total}
@@ -284,6 +300,11 @@ function PreviewStep({ preview }: { preview: Preview }) {
                     label="Ready to import"
                     value={validRows.length}
                     tone="success"
+                />
+                <SummaryStat
+                    label="Possible duplicates"
+                    value={warnedRows.length}
+                    tone={warnedRows.length > 0 ? 'info' : 'neutral'}
                 />
                 <SummaryStat
                     label="Need attention"
@@ -337,14 +358,18 @@ function PreviewStep({ preview }: { preview: Preview }) {
                                     {rows.map((row) => {
                                         const isInvalid =
                                             Object.keys(row.errors).length > 0;
+                                        const isWarned =
+                                            !isInvalid &&
+                                            row.warnings.length > 0;
 
                                         return (
                                             <TableRow
                                                 key={row.row_number}
                                                 className={cn(
-                                                    isInvalid
-                                                        ? 'bg-destructive/5 hover:bg-destructive/10'
-                                                        : '',
+                                                    isInvalid &&
+                                                        'bg-destructive/5 hover:bg-destructive/10',
+                                                    isWarned &&
+                                                        'bg-amber-50/50 hover:bg-amber-100/40 dark:bg-amber-950/20 dark:hover:bg-amber-950/30',
                                                 )}
                                             >
                                                 <TableCell
@@ -356,6 +381,8 @@ function PreviewStep({ preview }: { preview: Preview }) {
                                                 <TableCell>
                                                     {isInvalid ? (
                                                         <AlertTriangle className="size-4 text-destructive" />
+                                                    ) : isWarned ? (
+                                                        <AlertCircle className="size-4 text-amber-600 dark:text-amber-400" />
                                                     ) : (
                                                         <CheckCircle2 className="size-4 text-emerald-600" />
                                                     )}
@@ -365,18 +392,24 @@ function PreviewStep({ preview }: { preview: Preview }) {
                                                         row.normalized[f.key];
                                                     const fieldErrors =
                                                         row.errors[f.key];
+                                                    // Pin the soft name-match
+                                                    // warning to the name cell
+                                                    // so it sits next to the
+                                                    // thing that triggered it.
+                                                    const showWarningsHere =
+                                                        f.key === 'full_name' &&
+                                                        !fieldErrors &&
+                                                        row.warnings.length > 0;
 
                                                     return (
                                                         <TableCell
                                                             key={f.key}
                                                             className={cn(
-                                                                fieldErrors
-                                                                    ? 'text-destructive'
-                                                                    : '',
+                                                                fieldErrors &&
+                                                                    'text-destructive',
                                                                 f.key ===
-                                                                    'name_ar'
-                                                                    ? 'text-right'
-                                                                    : '',
+                                                                    'name_ar' &&
+                                                                    'text-right',
                                                             )}
                                                             {...(f.key ===
                                                             'name_ar'
@@ -396,6 +429,23 @@ function PreviewStep({ preview }: { preview: Preview }) {
                                                                     {
                                                                         fieldErrors[0]
                                                                     }
+                                                                </div>
+                                                            )}
+                                                            {showWarningsHere && (
+                                                                <div className="mt-0.5 text-[11px] font-normal text-amber-700 dark:text-amber-400">
+                                                                    {row.warnings.map(
+                                                                        (w) => (
+                                                                            <div
+                                                                                key={
+                                                                                    w
+                                                                                }
+                                                                            >
+                                                                                {
+                                                                                    w
+                                                                                }
+                                                                            </div>
+                                                                        ),
+                                                                    )}
                                                                 </div>
                                                             )}
                                                         </TableCell>
@@ -441,6 +491,23 @@ function PreviewStep({ preview }: { preview: Preview }) {
                 </Alert>
             )}
 
+            {warnedRows.length > 0 && (
+                <Alert className="border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100 [&>svg]:text-amber-700 dark:[&>svg]:text-amber-300">
+                    <AlertCircle className="size-4" />
+                    <AlertTitle>
+                        {warnedRows.length}{' '}
+                        {warnedRows.length === 1 ? 'row matches' : 'rows match'}{' '}
+                        an existing player&apos;s name
+                    </AlertTitle>
+                    <AlertDescription className="text-amber-900/80 dark:text-amber-100/80">
+                        These will still import — Arabic names recur
+                        legitimately. Skim them to make sure you&apos;re not
+                        adding a duplicate, and hit &quot;Skip&quot; on any you
+                        want to leave out.
+                    </AlertDescription>
+                </Alert>
+            )}
+
             <div className="flex items-center justify-between gap-2">
                 <div className="text-sm text-muted-foreground">
                     {validRows.length === 0
@@ -478,7 +545,7 @@ function SummaryStat({
 }: {
     label: string;
     value: number;
-    tone: 'neutral' | 'success' | 'warn';
+    tone: 'neutral' | 'success' | 'info' | 'warn';
 }) {
     return (
         <Card className="p-4">
@@ -488,6 +555,7 @@ function SummaryStat({
                 className={cn(
                     'mt-1 text-2xl font-semibold tabular-nums',
                     tone === 'success' && 'text-emerald-600',
+                    tone === 'info' && 'text-amber-600 dark:text-amber-400',
                     tone === 'warn' && 'text-destructive',
                 )}
             >

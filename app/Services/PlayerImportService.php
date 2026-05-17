@@ -70,7 +70,10 @@ class PlayerImportService
     /**
      * Parse the uploaded file into a header map + rows. Returns the
      * payload the UI renders during the preview step, including
-     * validation errors keyed by row index + field.
+     * validation errors and soft warnings keyed by row index + field.
+     *
+     * Errors block import; warnings (e.g. "name matches an existing
+     * player") surface in the UI but the row still imports.
      *
      * @return array{
      *     headers: list<string>,
@@ -79,9 +82,10 @@ class PlayerImportService
      *         row_number: int,
      *         normalized: array<string, mixed>,
      *         errors: array<string, list<string>>,
+     *         warnings: list<string>,
      *         duplicate_of_row: int|null,
      *     }>,
-     *     summary: array{total: int, valid: int, invalid: int}
+     *     summary: array{total: int, valid: int, invalid: int, warned: int}
      * }
      */
     public function parse(UploadedFile $file): array
@@ -93,7 +97,7 @@ class PlayerImportService
                 'headers' => [],
                 'mapping' => [],
                 'rows' => [],
-                'summary' => ['total' => 0, 'valid' => 0, 'invalid' => 0],
+                'summary' => ['total' => 0, 'valid' => 0, 'invalid' => 0, 'warned' => 0],
             ];
         }
 
@@ -107,9 +111,11 @@ class PlayerImportService
         $mapping = $this->inferUnmappedColumns($mapping, $dataRows);
 
         $existing = $this->loadExistingUniqueValues();
+        $existingNames = $this->loadExistingNames();
         $seenCodes = [];
         $seenEmails = [];
         $seenPhones = [];
+        $seenNames = [];
 
         $results = [];
         $rowNumber = ($headerIndex ?? -1) + 2; // 1-indexed, +1 for header
@@ -126,6 +132,7 @@ class PlayerImportService
 
             $normalized = $this->normalizeRow($row, $mapping);
             $duplicateOf = null;
+            $warnings = [];
 
             // Within-file duplicate detection — Laravel's unique rule
             // only checks the DB, so two identical codes in the same
@@ -161,10 +168,29 @@ class PlayerImportService
                 $errors['_row'][] = "Duplicate of row {$duplicateOf} in this file.";
             }
 
+            // Soft warnings for name matches — the schema doesn't
+            // enforce name uniqueness (common Arabic names recur
+            // legitimately), so we flag but don't block.
+            foreach ([$normalized['full_name'] ?? null, $normalized['name_ar'] ?? null] as $candidate) {
+                if (! is_string($candidate) || $candidate === '') {
+                    continue;
+                }
+                $key = $this->normalizeName($candidate);
+                if (isset($existingNames[$key])) {
+                    $warnings[] = "A player named \"{$candidate}\" already exists in your roster.";
+                }
+                if (isset($seenNames[$key]) && $seenNames[$key] !== $rowNumber) {
+                    $warnings[] = "Same name as row {$seenNames[$key]} in this file.";
+                }
+                $seenNames[$key] ??= $rowNumber;
+            }
+            $warnings = array_values(array_unique($warnings));
+
             $results[] = [
                 'row_number' => $rowNumber,
                 'normalized' => $normalized,
                 'errors' => $errors,
+                'warnings' => $warnings,
                 'duplicate_of_row' => $duplicateOf,
             ];
 
@@ -172,6 +198,7 @@ class PlayerImportService
         }
 
         $valid = count(array_filter($results, static fn ($r): bool => $r['errors'] === []));
+        $warned = count(array_filter($results, static fn ($r): bool => $r['warnings'] !== []));
 
         return [
             'headers' => array_map(static fn ($v): string => (string) $v, $headers),
@@ -181,6 +208,7 @@ class PlayerImportService
                 'total' => count($results),
                 'valid' => $valid,
                 'invalid' => count($results) - $valid,
+                'warned' => $warned,
             ],
         ];
     }
@@ -236,6 +264,46 @@ class PlayerImportService
         });
 
         return ['created' => $created, 'skipped' => $skipped];
+    }
+
+    /**
+     * Snapshot existing player names (English + Arabic) keyed by
+     * normalised form, so the preview can flag rows whose name
+     * matches an already-present player. Soft check — names aren't
+     * enforced unique by the schema.
+     *
+     * @return array<string, true>
+     */
+    private function loadExistingNames(): array
+    {
+        $set = [];
+        Player::query()
+            ->select(['full_name', 'name_ar'])
+            ->orderBy('id')
+            ->chunk(500, function ($players) use (&$set): void {
+                foreach ($players as $player) {
+                    foreach ([$player->full_name, $player->name_ar] as $name) {
+                        if (! is_string($name) || $name === '') {
+                            continue;
+                        }
+                        $set[$this->normalizeName($name)] = true;
+                    }
+                }
+            });
+
+        return $set;
+    }
+
+    /**
+     * Lowercase + collapse whitespace. Avoids false negatives on
+     * "ahmad  najji" vs "Ahmad Najji" while staying conservative
+     * enough not to fold genuinely different names together.
+     */
+    private function normalizeName(string $name): string
+    {
+        $collapsed = preg_replace('/\s+/u', ' ', trim($name)) ?? $name;
+
+        return mb_strtolower($collapsed);
     }
 
     /**
