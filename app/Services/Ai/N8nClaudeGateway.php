@@ -44,15 +44,21 @@ class N8nClaudeGateway
     /**
      * @param  array<string, mixed>|null  $schema  JSON-Schema-shaped object describing
      *                                             the desired response shape; null = freeform text
-     * @param  array{kind?: string, record_id?: int|null, analysis_id?: int|null}  $context  Hooks for
-     *                                                                                       the pending_extractions row so the callback handler knows what to do
-     *                                                                                       with the eventual result. `kind` defaults to 'unknown';
-     *                                                                                       `record_id` / `analysis_id` are mutually exclusive owners (extraction
-     *                                                                                       calls carry record_id, NutritionistAssistant calls carry analysis_id).
+     * @param  array{kind?: string, record_id?: int|null, analysis_id?: int|null, match_report_id?: int|null}  $context  Hooks for
+     *                                                                                                                  the pending_extractions row so the callback handler knows what to do
+     *                                                                                                                  with the eventual result. `kind` defaults to 'unknown';
+     *                                                                                                                  `record_id` / `analysis_id` / `match_report_id` are mutually exclusive owners
+     *                                                                                                                  (extraction calls carry record_id, NutritionistAssistant calls carry analysis_id,
+     *                                                                                                                  match-report extraction carries match_report_id).
+     * @param  string|null  $model  Claude model identifier (e.g. 'claude-opus-4-7',
+     *                              'claude-haiku-4-5', or short aliases like 'opus' /
+     *                              'haiku'). Forwarded to the n8n workflow which passes
+     *                              it as `--model <value>` to the Claude CLI. null →
+     *                              workflow falls back to its own default.
      * @return array<string, mixed> Parsed JSON from the model when $schema is set,
      *                              or ['text' => '<stdout>'] when null.
      */
-    public function send(string $systemPrompt, string $userPrompt, ?array $schema = null, array $context = []): array
+    public function send(string $systemPrompt, string $userPrompt, ?array $schema = null, array $context = [], ?string $model = null): array
     {
         $url = (string) config('ai.providers.n8n.url');
         if ($url === '') {
@@ -83,6 +89,12 @@ class N8nClaudeGateway
             'system_prompt' => $effectiveSystemPrompt,
             'user_prompt' => $userPrompt,
         ];
+        if ($model !== null && $model !== '') {
+            // Per-call model selection. The n8n workflow reads this and
+            // passes it through as `--model <value>` to the Claude CLI;
+            // missing → the workflow defaults (haiku).
+            $body['model'] = $model;
+        }
         if ($callbackUrl !== '') {
             // Only opt into the async insurance when a callback endpoint
             // is actually configured. Lets local dev / CI run without

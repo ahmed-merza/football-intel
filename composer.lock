@@ -4,8 +4,72 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "bea635e9edc3a2dd2f92bde93578a0f4",
+    "content-hash": "16614790c87338a5eb30a16618ac1cc7",
     "packages": [
+        {
+            "name": "ahmedmerza/logscope",
+            "version": "v1.7.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/AhmedMerza/laravel-logscope.git",
+                "reference": "01c2a618d32e2899685f3dd139e848a38b148faf"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/AhmedMerza/laravel-logscope/zipball/01c2a618d32e2899685f3dd139e848a38b148faf",
+                "reference": "01c2a618d32e2899685f3dd139e848a38b148faf",
+                "shasum": ""
+            },
+            "require": {
+                "illuminate/contracts": ">=10.0",
+                "illuminate/database": ">=10.0",
+                "illuminate/support": ">=10.0",
+                "php": "^8.2"
+            },
+            "require-dev": {
+                "laravel/pint": "^1.18",
+                "orchestra/testbench": "^8.0|^9.0|^10.0",
+                "pestphp/pest": "^2.0|^3.0",
+                "pestphp/pest-plugin-laravel": "^2.0|^3.0"
+            },
+            "type": "library",
+            "extra": {
+                "laravel": {
+                    "providers": [
+                        "LogScope\\LogScopeServiceProvider"
+                    ]
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "LogScope\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "AhmedMerza",
+                    "email": "ahmedmerzaali@gmail.com"
+                }
+            ],
+            "description": "A fast, database-backed log viewer for Laravel applications",
+            "keywords": [
+                "debugging",
+                "laravel",
+                "log-viewer",
+                "logging",
+                "logs",
+                "monitoring"
+            ],
+            "support": {
+                "issues": "https://github.com/AhmedMerza/laravel-logscope/issues",
+                "source": "https://github.com/AhmedMerza/laravel-logscope/tree/v1.7.1"
+            },
+            "time": "2026-05-20T05:51:29+00:00"
+        },
         {
             "name": "aws/aws-crt-php",
             "version": "v1.2.7",

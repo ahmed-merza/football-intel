@@ -48,6 +48,7 @@ class AgentRouter
                     ? $this->compileSchema($agent->schema(new JsonSchemaTypeFactory))
                     : null,
                 context: $context,
+                model: $this->resolveModel($agent),
             );
         }
 
@@ -69,6 +70,22 @@ class AgentRouter
         return method_exists($agent, 'provider')
             ? (string) $agent->provider()
             : (string) config('ai.default');
+    }
+
+    /**
+     * Pull the agent's preferred Claude model so the n8n workflow can use
+     * the right one per agent (Haiku for the classifier, Opus for extractor
+     * + nutritionist). Returns null when the agent doesn't declare one —
+     * the workflow falls back to its own default in that case.
+     */
+    private function resolveModel(Agent $agent): ?string
+    {
+        if (! method_exists($agent, 'model')) {
+            return null;
+        }
+        $model = (string) $agent->model();
+
+        return $model === '' ? null : $model;
     }
 
     /**

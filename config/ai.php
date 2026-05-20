@@ -198,11 +198,23 @@ return [
             'embedding' => env('AI_PROVIDER_EMBEDDING', 'voyageai'),
         ],
 
+        // Model values are passed straight through to the n8n workflow as
+        // `--model <value>` for the Claude CLI, which only accepts the
+        // family aliases `haiku` / `sonnet` / `opus` (NOT full identifiers
+        // like `claude-opus-4-7`). Keep these as aliases unless you switch
+        // off n8n to a provider that wants full IDs (Anthropic API direct,
+        // Ollama, etc.) — at which point override in .env per-task.
+        //
+        // Why sonnet for match-report extraction specifically: 50-page
+        // AGCFF reports produce ~20-30 player rows × ~45 fields each, well
+        // past Haiku's 8K output cap and tight against Opus 4.7's 32K. Sonnet
+        // 4.6's 64K output limit gives comfortable headroom.
         'models' => [
-            'classifier' => env('AI_MODEL_CLASSIFIER', 'claude-haiku-4-5'),
-            'extractor' => env('AI_MODEL_EXTRACTOR', 'claude-opus-4-7'),
-            'nutritionist' => env('AI_MODEL_NUTRITIONIST', 'claude-opus-4-7'),
-            'vision' => env('AI_MODEL_VISION', 'claude-opus-4-7'),
+            'classifier' => env('AI_MODEL_CLASSIFIER', 'haiku'),
+            'extractor' => env('AI_MODEL_EXTRACTOR', 'opus'),
+            'match_extractor' => env('AI_MODEL_MATCH_EXTRACTOR', 'sonnet'),
+            'nutritionist' => env('AI_MODEL_NUTRITIONIST', 'opus'),
+            'vision' => env('AI_MODEL_VISION', 'opus'),
             'embedding' => env('AI_MODEL_EMBEDDING', 'voyage-3-large'),
         ],
 

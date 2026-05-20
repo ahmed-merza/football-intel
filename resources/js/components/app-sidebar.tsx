@@ -5,6 +5,7 @@ import {
     FileBarChart2,
     LayoutDashboard,
     ListChecks,
+    Trophy,
     Users,
 } from 'lucide-react';
 import AppLogo from '@/components/app-logo';
@@ -25,6 +26,7 @@ import type { NavItem } from '@/types';
 const mainNavItems: NavItem[] = [
     { title: 'Dashboard', href: dashboard(), icon: LayoutDashboard },
     { title: 'Players', href: '/players', icon: Users },
+    { title: 'Matches', href: '/matches', icon: Trophy },
     { title: 'Review queue', href: '/review', icon: ListChecks },
     { title: 'Alerts', href: '/alerts', icon: AlertTriangle },
     { title: 'Knowledge base', href: '/knowledge', icon: BookOpenText },

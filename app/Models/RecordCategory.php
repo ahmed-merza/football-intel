@@ -43,6 +43,8 @@ class RecordCategory extends Model
 
     public const MATCH_ACTIVITY = 'match_activity';
 
+    public const MATCH_PERFORMANCE = 'match_performance';
+
     public const OTHER = 'other';
 
     /** @return HasMany<PlayerRecord, $this> */

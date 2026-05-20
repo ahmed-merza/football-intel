@@ -1,2 +1,8 @@
+# Single-package "workspace" — we're not actually a monorepo, but pnpm 11+
+# requires `packages:` whenever this file exists. Declaring the repo root
+# as the only package keeps publicHoistPattern (below) effective.
+packages:
+  - '.'
+
 publicHoistPattern:
   - '@inertiajs/core'

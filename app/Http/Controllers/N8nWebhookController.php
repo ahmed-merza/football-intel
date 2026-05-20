@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Models\MatchReport;
 use App\Models\NutritionistAnalysis;
 use App\Models\PendingExtraction;
 use App\Models\PlayerRecord;
 use App\Models\RecordCategory;
 use App\Services\Ai\N8nClaudeGateway;
+use App\Services\Match\MatchReportApplier;
 use App\Services\Medical\ExtractionApplier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -42,6 +44,7 @@ class N8nWebhookController extends Controller
 {
     public function __construct(
         private ExtractionApplier $applier,
+        private MatchReportApplier $matchApplier,
         private N8nClaudeGateway $gateway,
     ) {}
 
@@ -104,13 +107,17 @@ class N8nWebhookController extends Controller
             return response()->json(['error' => 'parse_failed'], 422);
         }
 
-        // Two owner shapes: extraction kinds carry a record_id, the
-        // nutritionist_analysis kind carries an analysis_id. Dispatch on
-        // whichever is set; missing owners are a no-op (already-deleted
-        // row, classifier kind).
+        // Three owner shapes: extraction kinds carry a record_id, the
+        // nutritionist_analysis kind carries an analysis_id, the
+        // match_report kind carries a match_report_id. Dispatch on the
+        // kind first (it's the authoritative signal), falling back to
+        // owner FKs. Missing owners are a no-op (already-deleted row,
+        // classifier kind).
         try {
             if ($pending->kind === PendingExtraction::KIND_NUTRITIONIST_ANALYSIS) {
                 $this->applyToAnalysis($pending, $parsed);
+            } elseif ($pending->kind === PendingExtraction::KIND_MATCH_REPORT) {
+                $this->applyToMatchReport($pending, $parsed);
             } elseif ($pending->record_id !== null) {
                 /** @var PlayerRecord|null $record */
                 $record = PlayerRecord::find($pending->record_id);
@@ -158,6 +165,31 @@ class N8nWebhookController extends Controller
             // will pick up async support in its own commit.
             default => null,
         };
+    }
+
+    /**
+     * Mirror of {@see applyToAnalysis} for the match-report owner shape.
+     * Promote the report from `awaiting_callback` to `extracted` and
+     * write the payload via {@see MatchReportApplier::applyExtraction}.
+     * Reports already past `awaiting_callback` (sync response beat us
+     * here, or the admin retried and a newer run wrote first) are a
+     * no-op so we don't clobber fresher state.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function applyToMatchReport(PendingExtraction $pending, array $payload): void
+    {
+        if ($pending->match_report_id === null) {
+            return;
+        }
+
+        /** @var MatchReport|null $report */
+        $report = MatchReport::find($pending->match_report_id);
+        if ($report === null || $report->status !== MatchReport::STATUS_AWAITING_CALLBACK) {
+            return;
+        }
+
+        $this->matchApplier->applyExtraction($report, $payload);
     }
 
     /**

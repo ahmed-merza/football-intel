@@ -37,6 +37,10 @@ class RecordMetricFanner
         RecordCategory::BLOOD_TEST => 'labs',
         RecordCategory::INBODY => 'metrics',
         RecordCategory::NUTRITION_PLAN => 'metrics',
+        // Match-performance PlayerRecords carry the same {key,value,unit,flag,...}
+        // shape under `metrics`, populated by MatchReportApplier — no per-category
+        // branching needed beyond this map entry.
+        RecordCategory::MATCH_PERFORMANCE => 'metrics',
     ];
 
     /**

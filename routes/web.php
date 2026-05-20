@@ -3,6 +3,7 @@
 use App\Http\Controllers\AlertController;
 use App\Http\Controllers\AttachmentController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\MatchReportController;
 use App\Http\Controllers\N8nWebhookController;
 use App\Http\Controllers\NutritionistAnalysisController;
 use App\Http\Controllers\PlayerController;
@@ -90,6 +91,28 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('alerts.acknowledge');
     Route::delete('alerts/{alert}/acknowledge', [AlertController::class, 'unacknowledge'])
         ->name('alerts.unacknowledge');
+
+    // Match-report ingestion — upload an AGCFF/Wyscout PDF, extractor parses
+    // it into typed JSON, admin resolves Bahrain players, applier writes
+    // match_performances + PlayerRecord rows + record_metrics fan-out. The
+    // `upload` form is defined before the resource so /matches/upload isn't
+    // caught by /matches/{matchReport}.
+    Route::get('matches/upload', [MatchReportController::class, 'create'])
+        ->name('matches.upload.create');
+    Route::post('matches/upload', [MatchReportController::class, 'store'])
+        ->name('matches.upload.store');
+    Route::get('matches', [MatchReportController::class, 'index'])
+        ->name('matches.index');
+    Route::get('matches/{matchReport}', [MatchReportController::class, 'show'])
+        ->name('matches.show');
+    Route::get('matches/{matchReport}/preview', [MatchReportController::class, 'preview'])
+        ->name('matches.preview');
+    Route::post('matches/{matchReport}/apply', [MatchReportController::class, 'apply'])
+        ->name('matches.apply');
+    Route::post('matches/{matchReport}/retry', [MatchReportController::class, 'retry'])
+        ->name('matches.retry');
+    Route::delete('matches/{matchReport}', [MatchReportController::class, 'destroy'])
+        ->name('matches.destroy');
 
     // Coming-soon stubs — the sidebar links land here so the admin can
     // see the planned scope. Real pages ship in their own phases.
