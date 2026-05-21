@@ -336,7 +336,28 @@ class MatchReportController extends Controller
             'extraction_error' => $report->extraction_error,
             'extracted_at' => $report->extracted_at?->toIso8601String(),
             'applied_at' => $report->applied_at?->toIso8601String(),
+            // True only when the report has sat in `awaiting_callback` past
+            // the configured stuck threshold (ai.match_report.stuck_threshold_minutes,
+            // default 10). Backend-owned so the threshold can move without an
+            // FE deploy — UI just renders the button when this is true.
+            'can_force_retry' => $this->canForceRetry($report),
         ];
+    }
+
+    private function canForceRetry(MatchReport $report): bool
+    {
+        if ($report->status !== MatchReport::STATUS_AWAITING_CALLBACK) {
+            return false;
+        }
+
+        $lastTouch = $report->updated_at;
+        if ($lastTouch === null) {
+            return false;
+        }
+
+        $threshold = (int) config('ai.football_intel.match_report.stuck_threshold_minutes', 10);
+
+        return $lastTouch->diffInMinutes(now()) >= $threshold;
     }
 
     /**

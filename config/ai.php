@@ -223,6 +223,17 @@ return [
         // knowledge_chunks migration if you change it.
         'embedding_dimensions' => (int) env('AI_EMBEDDING_DIMENSIONS', 1024),
 
+        // Match-report ingestion UX knobs.
+        //   stuck_threshold_minutes: when a match_report has been in
+        //     `awaiting_callback` for this long without anything moving on it
+        //     (updated_at as proxy), the preview page surfaces a "Force retry"
+        //     button. Keep below callback_expiry_minutes (default 15) so the
+        //     admin can intervene before the reaper marks the pending row
+        //     expired.
+        'match_report' => [
+            'stuck_threshold_minutes' => (int) env('AI_MATCH_REPORT_STUCK_MIN', 10),
+        ],
+
         /*
         | Input preprocessing per agent.
         |

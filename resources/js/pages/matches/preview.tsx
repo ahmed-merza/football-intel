@@ -55,6 +55,10 @@ type MatchSummary = {
     opponent_name: string | null;
     extraction_error: string | null;
     extracted_at: string | null;
+    // Backend signals (true) that the report has been stuck long enough
+    // for the admin to take over — surfaces a Force Retry button on the
+    // processing panel. Threshold lives in config/ai.php, not here.
+    can_force_retry: boolean;
 };
 
 type Suggestion = {
@@ -212,6 +216,16 @@ function ProcessingPanel({ match }: { match: MatchSummary }) {
         return () => clearInterval(tick);
     }, []);
 
+    const [retrying, setRetrying] = useState(false);
+    const forceRetry = (): void => {
+        setRetrying(true);
+        router.post(
+            `/matches/${match.id}/retry`,
+            {},
+            { onFinish: () => setRetrying(false) },
+        );
+    };
+
     const label =
         match.status === 'awaiting_callback'
             ? 'Awaiting callback from extraction service'
@@ -227,6 +241,28 @@ function ProcessingPanel({ match }: { match: MatchSummary }) {
                         ? 'The sync HTTP call timed out, but the extractor is still working — the result will land here shortly. This page auto-refreshes.'
                         : "We're parsing the PDF and turning every player's stat line into structured data. This usually takes 30–90 seconds."}
                 </p>
+                {match.can_force_retry && (
+                    <div className="flex flex-col items-center gap-2 pt-2">
+                        <p className="max-w-md text-center text-xs text-amber-700 dark:text-amber-400">
+                            This has been stuck for a while. The callback may
+                            have got lost — you can cancel the wait and
+                            re-dispatch the extractor.
+                        </p>
+                        <Button
+                            onClick={forceRetry}
+                            disabled={retrying}
+                            size="sm"
+                            variant="outline"
+                        >
+                            <RefreshCw
+                                className={
+                                    'size-4 ' + (retrying ? 'animate-spin' : '')
+                                }
+                            />
+                            {retrying ? 'Retrying…' : 'Force retry'}
+                        </Button>
+                    </div>
+                )}
             </CardContent>
         </Card>
     );
