@@ -67,6 +67,8 @@ class PendingExtraction extends Model
 
     public const KIND_MATCH_SHOT_EVENTS = 'match_shot_events';
 
+    public const KIND_MATCH_GOALKEEPER_EVENTS = 'match_goalkeeper_events';
+
     protected $fillable = [
         'correlation_id',
         'record_id',

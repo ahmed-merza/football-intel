@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Match;
 
+use App\Jobs\ExtractMatchGoalkeeperEventsJob;
 use App\Jobs\ExtractMatchReportJob;
 use App\Jobs\ExtractMatchShotEventsJob;
 use App\Models\MatchPerformance;
@@ -95,8 +96,14 @@ class MatchReportApplier
      */
     private function dispatchPhase2(MatchReport $report): void
     {
+        // Bus::chain runs jobs serially. Phase-2 extractors are
+        // independent — a slow one shouldn't block the next. Each ends
+        // by hitting Claude via the n8n proxy; running them serially
+        // also avoids stacking 5 concurrent extractor requests on the
+        // same n8n machine, which the operator's setup may not love.
         Bus::chain([
             new ExtractMatchShotEventsJob($report->id),
+            new ExtractMatchGoalkeeperEventsJob($report->id),
         ])->dispatch();
     }
 

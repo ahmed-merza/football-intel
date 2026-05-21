@@ -218,6 +218,7 @@ return [
             // haiku is the default. Override individually via env if a
             // section's payload grows beyond haiku's output budget.
             'match_shot_events' => env('AI_MODEL_MATCH_SHOT_EVENTS', 'haiku'),
+            'match_goalkeeper_events' => env('AI_MODEL_MATCH_GOALKEEPER_EVENTS', 'haiku'),
             'nutritionist' => env('AI_MODEL_NUTRITIONIST', 'opus'),
             'vision' => env('AI_MODEL_VISION', 'opus'),
             'embedding' => env('AI_MODEL_EMBEDDING', 'voyage-3-large'),

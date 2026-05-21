@@ -10,6 +10,7 @@ use App\Models\PendingExtraction;
 use App\Models\PlayerRecord;
 use App\Models\RecordCategory;
 use App\Services\Ai\N8nClaudeGateway;
+use App\Services\Match\MatchGoalkeeperEventsApplier;
 use App\Services\Match\MatchReportApplier;
 use App\Services\Match\MatchShotEventsApplier;
 use App\Services\Medical\ExtractionApplier;
@@ -47,6 +48,7 @@ class N8nWebhookController extends Controller
         private ExtractionApplier $applier,
         private MatchReportApplier $matchApplier,
         private MatchShotEventsApplier $shotEventsApplier,
+        private MatchGoalkeeperEventsApplier $goalkeeperEventsApplier,
         private N8nClaudeGateway $gateway,
     ) {}
 
@@ -122,6 +124,8 @@ class N8nWebhookController extends Controller
                 $this->applyToMatchReport($pending, $parsed);
             } elseif ($pending->kind === PendingExtraction::KIND_MATCH_SHOT_EVENTS) {
                 $this->applyToShotEvents($pending, $parsed);
+            } elseif ($pending->kind === PendingExtraction::KIND_MATCH_GOALKEEPER_EVENTS) {
+                $this->applyToGoalkeeperEvents($pending, $parsed);
             } elseif ($pending->record_id !== null) {
                 /** @var PlayerRecord|null $record */
                 $record = PlayerRecord::find($pending->record_id);
@@ -193,6 +197,27 @@ class N8nWebhookController extends Controller
         }
 
         $this->shotEventsApplier->apply($report, $payload);
+    }
+
+    /**
+     * Mirror of {@see applyToShotEvents} for the goalkeeper events
+     * extractor — different applier, same shape.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function applyToGoalkeeperEvents(PendingExtraction $pending, array $payload): void
+    {
+        if ($pending->match_report_id === null) {
+            return;
+        }
+
+        /** @var MatchReport|null $report */
+        $report = MatchReport::find($pending->match_report_id);
+        if ($report === null) {
+            return;
+        }
+
+        $this->goalkeeperEventsApplier->apply($report, $payload);
     }
 
     /**
