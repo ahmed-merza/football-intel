@@ -4,5 +4,13 @@
 packages:
   - '.'
 
+# pnpm 11+ refuses to run install/postinstall scripts unless the package
+# is explicitly approved here. These two are required:
+#   - lefthook: installs the git-hooks binary on `pnpm install`
+#   - unrs-resolver: installs the prebuilt Rust resolver eslint depends on
+allowBuilds:
+  lefthook: true
+  unrs-resolver: true
+
 publicHoistPattern:
   - '@inertiajs/core'

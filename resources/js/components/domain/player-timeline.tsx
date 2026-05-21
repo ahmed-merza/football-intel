@@ -12,6 +12,7 @@ import {
     RefreshCw,
     Salad,
     Trash2,
+    Trophy,
     XCircle,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -19,6 +20,53 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+
+type MatchPerformanceDetails = {
+    match_id: number | null;
+    opponent: string | null;
+    competition: string | null;
+    stage: string | null;
+    venue: string | null;
+    home_team_name: string | null;
+    away_team_name: string | null;
+    home_score: number | null;
+    away_score: number | null;
+    bahrain_side: 'home' | 'away' | null;
+    jersey_number: number | null;
+    match_position: string | null;
+    appearance: 'starter' | 'sub' | 'unused';
+    minutes_played: number | null;
+    rating: number | null;
+    goals: number;
+    assists: number;
+    shots: number;
+    shots_on_target: number;
+    key_passes: number;
+    passes_total: number;
+    passes_succeeded: number;
+    pass_accuracy_pct: number | null;
+    take_ons_attempted: number;
+    take_ons_succeeded: number;
+    crosses_attempted: number;
+    crosses_succeeded: number;
+    tackles_attempted: number;
+    tackles_succeeded: number;
+    aerial_duels_total: number;
+    aerial_duels_won: number;
+    ground_duels_total: number;
+    ground_duels_won: number;
+    interceptions: number;
+    clearances: number;
+    recoveries: number;
+    blocks: number;
+    fouls_committed: number;
+    fouls_won: number;
+    yellow_cards: number;
+    red_cards: number;
+    goals_conceded: number | null;
+    catches: number | null;
+    parries: number | null;
+};
 
 type TimelineEntry = {
     id: number;
@@ -35,6 +83,9 @@ type TimelineEntry = {
     chunks_completed?: number | null;
     chunks_total?: number | null;
     awaiting_callback?: boolean;
+    // Per-category extras for rich row rendering. null for categories that
+    // get the generic one-line summary treatment.
+    details?: MatchPerformanceDetails | null;
 };
 
 export type InflightSubmission = {
@@ -56,6 +107,7 @@ const CATEGORY_ICON: Record<string, LucideIcon> = {
     hydration_supplement_plan: Droplets,
     coach_feedback: MessageSquare,
     match_activity: Goal,
+    match_performance: Trophy,
     other: FileText,
 };
 
@@ -492,6 +544,12 @@ function TimelineRow({ entry }: { entry: TimelineEntry }) {
                                     {entry.summary_text}
                                 </p>
                             )}
+                            {entry.category.slug === 'match_performance' &&
+                                entry.details && (
+                                    <MatchPerformanceCard
+                                        details={entry.details}
+                                    />
+                                )}
                             {entry.attachment_filename && (
                                 <p className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                                     <FileText className="size-3" />
@@ -519,5 +577,185 @@ function TimelineRow({ entry }: { entry: TimelineEntry }) {
                 </CardContent>
             </Card>
         </li>
+    );
+}
+
+function MatchPerformanceCard({
+    details,
+}: {
+    details: MatchPerformanceDetails;
+}) {
+    const fixtureLine = (() => {
+        const home = details.home_team_name ?? '—';
+        const away = details.away_team_name ?? '—';
+
+        if (details.home_score !== null && details.away_score !== null) {
+            return `${home} ${details.home_score} – ${details.away_score} ${away}`;
+        }
+
+        return `${home} vs ${away}`;
+    })();
+
+    const headerBits: string[] = [];
+
+    if (details.match_position) {
+        headerBits.push(details.match_position);
+    }
+
+    if (details.jersey_number !== null) {
+        headerBits.push(`#${details.jersey_number}`);
+    }
+
+    headerBits.push(details.appearance);
+
+    if (details.minutes_played !== null) {
+        headerBits.push(`${details.minutes_played}'`);
+    }
+
+    const isGoalkeeper =
+        details.match_position === 'GK' ||
+        details.goals_conceded !== null ||
+        details.catches !== null ||
+        details.parries !== null;
+
+    return (
+        <div className="mt-1 space-y-2 rounded-md border bg-muted/30 p-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <div>
+                    <div className="text-sm font-medium">{fixtureLine}</div>
+                    <div className="text-xs text-muted-foreground">
+                        {headerBits.join(' · ')}
+                    </div>
+                </div>
+                {details.rating !== null && (
+                    <div
+                        data-numeric
+                        className="text-2xl font-semibold tabular-nums"
+                        title="Match rating"
+                    >
+                        {details.rating.toFixed(1)}
+                    </div>
+                )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+                <StatGroup
+                    label="Offensive"
+                    rows={[
+                        [
+                            'Goals / Assists',
+                            `${details.goals} · ${details.assists}`,
+                        ],
+                        [
+                            'Shots (on target)',
+                            `${details.shots} (${details.shots_on_target})`,
+                        ],
+                        ['Key passes', details.key_passes],
+                        [
+                            'Take-ons',
+                            `${details.take_ons_succeeded}/${details.take_ons_attempted}`,
+                        ],
+                    ]}
+                />
+                <StatGroup
+                    label="Distribution"
+                    rows={[
+                        [
+                            'Pass accuracy',
+                            details.pass_accuracy_pct !== null
+                                ? `${details.pass_accuracy_pct.toFixed(1)}%`
+                                : '—',
+                        ],
+                        [
+                            'Passes',
+                            `${details.passes_succeeded}/${details.passes_total}`,
+                        ],
+                        [
+                            'Crosses',
+                            `${details.crosses_succeeded}/${details.crosses_attempted}`,
+                        ],
+                    ]}
+                />
+                {isGoalkeeper ? (
+                    <StatGroup
+                        label="Goalkeeper"
+                        rows={[
+                            ['Conceded', details.goals_conceded ?? 0],
+                            ['Catches', details.catches ?? 0],
+                            ['Parries', details.parries ?? 0],
+                        ]}
+                    />
+                ) : (
+                    <StatGroup
+                        label="Defensive"
+                        rows={[
+                            [
+                                'Tackles',
+                                `${details.tackles_succeeded}/${details.tackles_attempted}`,
+                            ],
+                            [
+                                'Aerial duels',
+                                `${details.aerial_duels_won}/${details.aerial_duels_total}`,
+                            ],
+                            [
+                                'Ground duels',
+                                `${details.ground_duels_won}/${details.ground_duels_total}`,
+                            ],
+                            [
+                                'Int · Clr · Rec',
+                                `${details.interceptions} · ${details.clearances} · ${details.recoveries}`,
+                            ],
+                        ]}
+                    />
+                )}
+                <StatGroup
+                    label="Discipline"
+                    rows={[
+                        [
+                            'Fouls (c/w)',
+                            `${details.fouls_committed}/${details.fouls_won}`,
+                        ],
+                        [
+                            'Cards',
+                            `${details.yellow_cards} YC${
+                                details.red_cards > 0
+                                    ? ` · ${details.red_cards} RC`
+                                    : ''
+                            }`,
+                        ],
+                        ['Blocks', details.blocks],
+                    ]}
+                />
+            </div>
+        </div>
+    );
+}
+
+function StatGroup({
+    label,
+    rows,
+}: {
+    label: string;
+    rows: [string, string | number][];
+}) {
+    return (
+        <div>
+            <div className="mb-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+                {label}
+            </div>
+            <dl className="space-y-0.5">
+                {rows.map(([k, v]) => (
+                    <div
+                        key={k}
+                        className="flex items-baseline justify-between gap-2"
+                    >
+                        <dt className="truncate text-muted-foreground">{k}</dt>
+                        <dd data-numeric className="font-medium tabular-nums">
+                            {v}
+                        </dd>
+                    </div>
+                ))}
+            </dl>
+        </div>
     );
 }

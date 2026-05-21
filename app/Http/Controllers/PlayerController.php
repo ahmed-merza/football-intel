@@ -9,6 +9,7 @@ use App\Http\Requests\StorePlayerRequest;
 use App\Http\Requests\UpdatePlayerRequest;
 use App\Models\Alert;
 use App\Models\Player;
+use App\Models\PlayerRecord;
 use App\Models\RecordCategory;
 use App\Models\RecordMetric;
 use App\Models\Submission;
@@ -493,8 +494,96 @@ class PlayerController extends Controller
                 'chunks_completed' => is_int($r->extracted['chunks_completed'] ?? null) ? $r->extracted['chunks_completed'] : null,
                 'chunks_total' => is_int($r->extracted['chunks_total'] ?? null) ? $r->extracted['chunks_total'] : null,
                 'awaiting_callback' => (bool) ($r->extracted['awaiting_callback'] ?? false),
+                // Per-category extras the timeline row renderer expands into a
+                // category-specific card. NULL for categories that get the
+                // generic one-line summary treatment.
+                'details' => $this->buildTimelineDetails($r),
             ])->all(),
             'next_cursor' => $nextCursor,
+        ];
+    }
+
+    /**
+     * Surface a compact, display-ready subset of $record->extracted for
+     * categories that want a rich row (today: match_performance — every
+     * stat that's worth showing without forcing the admin to click into
+     * a detail view). Returns null for categories that get the generic
+     * summary-only treatment.
+     *
+     * Stays inside the controller (vs. a model accessor) because it's a
+     * pure transport-layer concern — shape match the TypeScript types in
+     * resources/js/components/domain/player-timeline.tsx.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function buildTimelineDetails(PlayerRecord $record): ?array
+    {
+        if ($record->category->slug !== RecordCategory::MATCH_PERFORMANCE) {
+            return null;
+        }
+
+        $e = $record->extracted ?? [];
+        // raw_extracted is the per-player slice from the match-report agent —
+        // flat numeric stats sit at the top level of that sub-array.
+        $raw = is_array($e['raw_extracted'] ?? null) ? $e['raw_extracted'] : [];
+
+        $int = static fn (mixed $v): int => is_numeric($v) ? (int) $v : 0;
+        $intOrNull = static fn (mixed $v): ?int => is_numeric($v) ? (int) $v : null;
+        $numOrNull = static fn (mixed $v): ?float => is_numeric($v) ? (float) $v : null;
+        $strOrNull = static fn (mixed $v): ?string => is_string($v) && $v !== '' ? $v : null;
+
+        return [
+            'match_id' => $intOrNull($e['match_id'] ?? null),
+            'opponent' => $strOrNull($e['opponent'] ?? null),
+            'competition' => $strOrNull($e['competition'] ?? null),
+            'stage' => $strOrNull($e['stage'] ?? null),
+            'venue' => $strOrNull($e['venue'] ?? null),
+            'home_team_name' => $strOrNull($e['home_team_name'] ?? null),
+            'away_team_name' => $strOrNull($e['away_team_name'] ?? null),
+            'home_score' => $intOrNull($e['home_score'] ?? null),
+            'away_score' => $intOrNull($e['away_score'] ?? null),
+            'bahrain_side' => $strOrNull($e['bahrain_side'] ?? null),
+
+            'jersey_number' => $intOrNull($e['jersey_number'] ?? null),
+            'match_position' => $strOrNull($e['match_position'] ?? null),
+            'appearance' => $strOrNull($e['appearance'] ?? null) ?? 'starter',
+            'minutes_played' => $intOrNull($e['minutes_played'] ?? null),
+            'rating' => $numOrNull($e['rating'] ?? null),
+
+            'goals' => $int($raw['goals'] ?? 0),
+            'assists' => $int($raw['assists'] ?? 0),
+            'shots' => $int($raw['shots'] ?? 0),
+            'shots_on_target' => $int($raw['shots_on_target'] ?? 0),
+            'key_passes' => $int($raw['key_passes'] ?? 0),
+            'passes_total' => $int($raw['passes_total'] ?? 0),
+            'passes_succeeded' => $int($raw['passes_succeeded'] ?? 0),
+            'pass_accuracy_pct' => $numOrNull($raw['pass_accuracy_pct'] ?? null),
+            'take_ons_attempted' => $int($raw['take_ons_attempted'] ?? 0),
+            'take_ons_succeeded' => $int($raw['take_ons_succeeded'] ?? 0),
+            'crosses_attempted' => $int($raw['crosses_attempted'] ?? 0),
+            'crosses_succeeded' => $int($raw['crosses_succeeded'] ?? 0),
+
+            'tackles_attempted' => $int($raw['tackles_attempted'] ?? 0),
+            'tackles_succeeded' => $int($raw['tackles_succeeded'] ?? 0),
+            'aerial_duels_total' => $int($raw['aerial_duels_total'] ?? 0),
+            'aerial_duels_won' => $int($raw['aerial_duels_won'] ?? 0),
+            'ground_duels_total' => $int($raw['ground_duels_total'] ?? 0),
+            'ground_duels_won' => $int($raw['ground_duels_won'] ?? 0),
+            'interceptions' => $int($raw['interceptions'] ?? 0),
+            'clearances' => $int($raw['clearances'] ?? 0),
+            'recoveries' => $int($raw['recoveries'] ?? 0),
+            'blocks' => $int($raw['blocks'] ?? 0),
+
+            'fouls_committed' => $int($raw['fouls_committed'] ?? 0),
+            'fouls_won' => $int($raw['fouls_won'] ?? 0),
+            'yellow_cards' => $int($raw['yellow_cards'] ?? 0),
+            'red_cards' => $int($raw['red_cards'] ?? 0),
+
+            // Goalkeeper-only — null for outfield (helper renders them as a
+            // dedicated section only when at least one is non-null).
+            'goals_conceded' => $intOrNull($raw['goals_conceded'] ?? null),
+            'catches' => $intOrNull($raw['catches'] ?? null),
+            'parries' => $intOrNull($raw['parries'] ?? null),
         ];
     }
 

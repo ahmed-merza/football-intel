@@ -45,11 +45,11 @@ class N8nClaudeGateway
      * @param  array<string, mixed>|null  $schema  JSON-Schema-shaped object describing
      *                                             the desired response shape; null = freeform text
      * @param  array{kind?: string, record_id?: int|null, analysis_id?: int|null, match_report_id?: int|null}  $context  Hooks for
-     *                                                                                                                  the pending_extractions row so the callback handler knows what to do
-     *                                                                                                                  with the eventual result. `kind` defaults to 'unknown';
-     *                                                                                                                  `record_id` / `analysis_id` / `match_report_id` are mutually exclusive owners
-     *                                                                                                                  (extraction calls carry record_id, NutritionistAssistant calls carry analysis_id,
-     *                                                                                                                  match-report extraction carries match_report_id).
+     *                                                                                                                   the pending_extractions row so the callback handler knows what to do
+     *                                                                                                                   with the eventual result. `kind` defaults to 'unknown';
+     *                                                                                                                   `record_id` / `analysis_id` / `match_report_id` are mutually exclusive owners
+     *                                                                                                                   (extraction calls carry record_id, NutritionistAssistant calls carry analysis_id,
+     *                                                                                                                   match-report extraction carries match_report_id).
      * @param  string|null  $model  Claude model identifier (e.g. 'claude-opus-4-7',
      *                              'claude-haiku-4-5', or short aliases like 'opus' /
      *                              'haiku'). Forwarded to the n8n workflow which passes
@@ -73,6 +73,7 @@ class N8nClaudeGateway
             'correlation_id' => $correlationId,
             'record_id' => $context['record_id'] ?? null,
             'analysis_id' => $context['analysis_id'] ?? null,
+            'match_report_id' => $context['match_report_id'] ?? null,
             'kind' => (string) ($context['kind'] ?? 'unknown'),
             'status' => PendingExtraction::STATUS_PENDING,
             'request' => [

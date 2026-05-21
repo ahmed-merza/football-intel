@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace App\Services\Match;
 
+use App\Jobs\ExtractMatchReportJob;
 use App\Models\MatchPerformance;
 use App\Models\MatchReport;
 use App\Models\Player;
 use App\Models\PlayerRecord;
 use App\Models\RecordCategory;
+use App\Services\Medical\ExtractionApplier;
 use App\Services\Medical\RecordMetricFanner;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -19,7 +21,7 @@ use Throwable;
  * Single source of truth for "we have an extracted match report payload —
  * write it into the relational layer". Two call sites end up here:
  *
- *   - The sync success path inside {@see \App\Jobs\ExtractMatchReportJob}
+ *   - The sync success path inside {@see ExtractMatchReportJob}
  *     calls {@see applyExtraction()} as soon as the LLM responds.
  *   - The async callback path inside the n8n webhook controller calls
  *     {@see applyExtraction()} when n8n finally POSTs the result after
@@ -74,11 +76,11 @@ class MatchReportApplier
      * rolls back and the preview screen reloads unchanged.
      *
      * @param  array<int, array{type: string, player_id?: int|null, data?: array<string, mixed>}>  $resolutions
-     *                                  Keyed by the performance's 0-based index into
-     *                                  $report->raw_extracted['performances']. Missing keys are treated as
-     *                                  'skip' (defensive: opposition rows + admin-skipped rows). Allowed
-     *                                  types: 'existing' (player_id required), 'new' (data required),
-     *                                  'skip' (no fields).
+     *                                                                                                           Keyed by the performance's 0-based index into
+     *                                                                                                           $report->raw_extracted['performances']. Missing keys are treated as
+     *                                                                                                           'skip' (defensive: opposition rows + admin-skipped rows). Allowed
+     *                                                                                                           types: 'existing' (player_id required), 'new' (data required),
+     *                                                                                                           'skip' (no fields).
      */
     public function applyResolution(MatchReport $report, array $resolutions): void
     {
@@ -344,12 +346,18 @@ class MatchReportApplier
             'raw_extracted' => $perf,
         ];
 
+        // primary_attachment_id is intentionally NOT set: the player_records
+        // table carries a UNIQUE(primary_attachment_id) constraint
+        // (migration 2026_05_11_120000) designed for the medical flow where
+        // one PDF → one record. Match reports are one PDF → many records (one
+        // per resolved Bahrain player), so setting it would collide on the
+        // 2nd row. The PDF is still reachable via match_report.attachment_id
+        // and match_performance.match_report_id, so no information is lost.
         return PlayerRecord::create([
             'player_id' => $playerId,
             'category_id' => $categoryId,
             'record_date' => $report->match_date,
             'submission_id' => $report->submission_id,
-            'primary_attachment_id' => $report->attachment_id,
             'extracted' => $extracted,
             'source_lab' => $report->competition ?: $report->venue,
             'summary_text' => $this->summarise($performance, $report),
@@ -425,7 +433,7 @@ class MatchReportApplier
     /**
      * One-line summary that lands on player_records.summary_text and
      * surfaces in the timeline list. Mirrors the per-category summaries
-     * in {@see \App\Services\Medical\ExtractionApplier} for visual parity.
+     * in {@see ExtractionApplier} for visual parity.
      */
     private function summarise(MatchPerformance $p, MatchReport $report): string
     {
@@ -458,7 +466,6 @@ class MatchReportApplier
 
     /**
      * @param  array<string, mixed>  $payload
-     *
      * @return array{
      *     competition: string|null, stage: string|null, match_date: string|null,
      *     kickoff_time: string|null, venue: string|null,
