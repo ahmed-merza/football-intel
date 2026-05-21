@@ -57,6 +57,70 @@ class MatchReportApplierTest extends TestCase
         $this->assertNotNull($report->extracted_at);
     }
 
+    public function test_apply_extraction_writes_team_aggregate_extras_from_payload(): void
+    {
+        $report = MatchReport::factory()->pending()->create();
+
+        app(MatchReportApplier::class)->applyExtraction($report, [
+            'home_team_name' => 'Iraq U20',
+            'away_team_name' => 'Bahrain U20',
+            'home_score' => 1,
+            'away_score' => 0,
+            'match_date' => '2025-08-29',
+            'home_possession_pct' => 57.4,
+            'away_possession_pct' => 42.6,
+            'first_half_home_score' => 0,
+            'first_half_away_score' => 0,
+            'second_half_home_score' => 1,
+            'second_half_away_score' => 0,
+            'performances' => [],
+        ]);
+
+        $report->refresh();
+        $this->assertEqualsWithDelta(57.4, (float) $report->home_possession_pct, 0.01);
+        $this->assertEqualsWithDelta(42.6, (float) $report->away_possession_pct, 0.01);
+        $this->assertSame(0, $report->first_half_home_score);
+        $this->assertSame(1, $report->second_half_home_score);
+        $this->assertSame(0, $report->first_half_away_score);
+        $this->assertSame(0, $report->second_half_away_score);
+    }
+
+    public function test_apply_extraction_handles_possession_as_string_with_percent_sign(): void
+    {
+        // Defensive: extractor occasionally emits "57.4%" as a literal string
+        // instead of a number. Applier must strip the % and parse, not bail.
+        $report = MatchReport::factory()->pending()->create();
+
+        app(MatchReportApplier::class)->applyExtraction($report, [
+            'home_team_name' => 'Iraq U20',
+            'away_team_name' => 'Bahrain U20',
+            'match_date' => '2025-08-29',
+            'home_possession_pct' => '57.4%',
+            'away_possession_pct' => '42.6 %',
+            'performances' => [],
+        ]);
+
+        $this->assertEqualsWithDelta(57.4, (float) $report->fresh()->home_possession_pct, 0.01);
+        $this->assertEqualsWithDelta(42.6, (float) $report->fresh()->away_possession_pct, 0.01);
+    }
+
+    public function test_apply_extraction_rejects_out_of_range_possession(): void
+    {
+        $report = MatchReport::factory()->pending()->create();
+
+        app(MatchReportApplier::class)->applyExtraction($report, [
+            'home_team_name' => 'Iraq U20',
+            'away_team_name' => 'Bahrain U20',
+            'match_date' => '2025-08-29',
+            'home_possession_pct' => 150,    // garbage
+            'away_possession_pct' => -5,     // garbage
+            'performances' => [],
+        ]);
+
+        $this->assertNull($report->fresh()->home_possession_pct);
+        $this->assertNull($report->fresh()->away_possession_pct);
+    }
+
     public function test_apply_extraction_detects_bahrain_as_home_side(): void
     {
         $report = MatchReport::factory()->pending()->create();

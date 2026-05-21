@@ -41,6 +41,12 @@ use OwenIt\Auditing\Contracts\Auditable;
  * @property string|null $away_team_name
  * @property int|null $home_score
  * @property int|null $away_score
+ * @property float|null $home_possession_pct
+ * @property float|null $away_possession_pct
+ * @property int|null $first_half_home_score
+ * @property int|null $first_half_away_score
+ * @property int|null $second_half_home_score
+ * @property int|null $second_half_away_score
  * @property string|null $bahrain_side
  * @property string|null $opponent_name
  * @property int|null $submission_id
@@ -90,6 +96,12 @@ class MatchReport extends Model implements Auditable
         'away_team_name',
         'home_score',
         'away_score',
+        'home_possession_pct',
+        'away_possession_pct',
+        'first_half_home_score',
+        'first_half_away_score',
+        'second_half_home_score',
+        'second_half_away_score',
         'bahrain_side',
         'opponent_name',
         'submission_id',
@@ -106,6 +118,12 @@ class MatchReport extends Model implements Auditable
         'match_date' => 'date',
         'home_score' => 'integer',
         'away_score' => 'integer',
+        'home_possession_pct' => 'decimal:2',
+        'away_possession_pct' => 'decimal:2',
+        'first_half_home_score' => 'integer',
+        'first_half_away_score' => 'integer',
+        'second_half_home_score' => 'integer',
+        'second_half_away_score' => 'integer',
         // jsonb on pgsql, json on mysql — same rationale as PlayerRecord.extracted:
         // need to read individual fields for downstream applies + UI; protection
         // at rest is delegated to disk/backup-level encryption.

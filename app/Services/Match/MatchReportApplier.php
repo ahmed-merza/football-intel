@@ -61,6 +61,15 @@ class MatchReportApplier
             'away_team_name' => $meta['away_team_name'] ?? $report->away_team_name,
             'home_score' => $meta['home_score'] ?? $report->home_score,
             'away_score' => $meta['away_score'] ?? $report->away_score,
+
+            // Match-summary panel extras (Phase 2 option C).
+            'home_possession_pct' => $meta['home_possession_pct'] ?? $report->home_possession_pct,
+            'away_possession_pct' => $meta['away_possession_pct'] ?? $report->away_possession_pct,
+            'first_half_home_score' => $meta['first_half_home_score'] ?? $report->first_half_home_score,
+            'first_half_away_score' => $meta['first_half_away_score'] ?? $report->first_half_away_score,
+            'second_half_home_score' => $meta['second_half_home_score'] ?? $report->second_half_home_score,
+            'second_half_away_score' => $meta['second_half_away_score'] ?? $report->second_half_away_score,
+
             'bahrain_side' => $meta['bahrain_side'],
             'opponent_name' => $meta['opponent_name'],
             'raw_extracted' => $payload,
@@ -493,13 +502,7 @@ class MatchReportApplier
 
     /**
      * @param  array<string, mixed>  $payload
-     * @return array{
-     *     competition: string|null, stage: string|null, match_date: string|null,
-     *     kickoff_time: string|null, venue: string|null,
-     *     home_team_name: string|null, away_team_name: string|null,
-     *     home_score: int|null, away_score: int|null,
-     *     bahrain_side: string|null, opponent_name: string|null,
-     * }
+     * @return array<string, mixed>
      */
     private function matchMeta(array $payload): array
     {
@@ -526,9 +529,40 @@ class MatchReportApplier
             'away_team_name' => $away,
             'home_score' => $this->int($payload['home_score'] ?? null),
             'away_score' => $this->int($payload['away_score'] ?? null),
+
+            // Phase 2 option C — possession + per-half scores.
+            'home_possession_pct' => $this->pctOrNull($payload['home_possession_pct'] ?? null),
+            'away_possession_pct' => $this->pctOrNull($payload['away_possession_pct'] ?? null),
+            'first_half_home_score' => $this->int($payload['first_half_home_score'] ?? null),
+            'first_half_away_score' => $this->int($payload['first_half_away_score'] ?? null),
+            'second_half_home_score' => $this->int($payload['second_half_home_score'] ?? null),
+            'second_half_away_score' => $this->int($payload['second_half_away_score'] ?? null),
+
             'bahrain_side' => $bahrainSide,
             'opponent_name' => $opponent,
         ];
+    }
+
+    /**
+     * Coerce a percentage to a 0-100 float, returning null if the input
+     * is non-numeric or out of plausible range. Defends against the
+     * extractor occasionally emitting "57.4%" as a string instead of a
+     * number — strip the % and parse.
+     */
+    private function pctOrNull(mixed $value): ?float
+    {
+        if (is_string($value)) {
+            $value = trim(str_replace('%', '', $value));
+        }
+        if (! is_numeric($value)) {
+            return null;
+        }
+        $float = (float) $value;
+        if ($float < 0.0 || $float > 100.0) {
+            return null;
+        }
+
+        return $float;
     }
 
     private function pct(int $succeeded, int $total): ?float
