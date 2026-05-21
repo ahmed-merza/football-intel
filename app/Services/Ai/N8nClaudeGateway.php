@@ -200,20 +200,52 @@ class N8nClaudeGateway
         }
 
         $entry = $payload[0];
-        $code = $entry['code'] ?? null;
-        if ($code !== 0) {
-            $stderr = (string) ($entry['stderr'] ?? '');
 
-            throw new RuntimeException("n8n claude exited with code={$code}: ".mb_substr($stderr, 0, 200));
+        // Two supported response shapes:
+        //
+        //   LEGACY  — raw SSH-node output: {code, signal, stdout, stderr}.
+        //             Gateway validates exit code and parses stdout (which
+        //             may have markdown fences around the JSON).
+        //   PARSED  — the n8n workflow has its own Sanitize JSON step that
+        //             pre-parses the model's stdout and sends the cleaned
+        //             object directly. Recommended — keeps fence-stripping
+        //             out of PHP and lets the workflow handle CLI quirks.
+        //
+        // Both legacy and parsed shapes are kept supported so workflow
+        // upgrades don't require a coordinated Laravel deploy.
+        $isLegacy = array_key_exists('code', $entry)
+            && array_key_exists('stdout', $entry);
+
+        if ($isLegacy) {
+            $code = $entry['code'];
+            if ($code !== 0) {
+                $stderr = (string) ($entry['stderr'] ?? '');
+
+                throw new RuntimeException(
+                    "n8n claude exited with code={$code}: ".mb_substr($stderr, 0, 200),
+                );
+            }
+
+            $stdout = (string) ($entry['stdout'] ?? '');
+
+            if ($schema === null) {
+                return ['text' => trim($stdout)];
+            }
+
+            return $this->parseStructuredJson($stdout);
         }
 
-        $stdout = (string) ($entry['stdout'] ?? '');
-
+        // Pre-parsed payload — the entry IS the structured output.
         if ($schema === null) {
-            return ['text' => trim($stdout)];
+            // Freeform call but workflow returned an object. Pull a `text`
+            // field if the workflow conventionally surfaced one; otherwise
+            // round-trip through JSON for predictable shape.
+            return is_string($entry['text'] ?? null)
+                ? ['text' => $entry['text']]
+                : ['text' => (string) json_encode($entry, JSON_UNESCAPED_UNICODE)];
         }
 
-        return $this->parseStructuredJson($stdout);
+        return $entry;
     }
 
     /**

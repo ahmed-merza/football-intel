@@ -148,6 +148,42 @@ class N8nClaudeGatewayTest extends TestCase
         (new N8nClaudeGateway)->send('x', 'y');
     }
 
+    public function test_accepts_pre_parsed_payload_from_workflow_with_sanitize_step(): void
+    {
+        // Newer n8n workflows include a "Sanitize JSON" Code node that
+        // pre-parses the model's stdout and sends the cleaned object
+        // directly. The gateway has to accept this shape — not just the
+        // raw SSH-node {code, stdout, stderr}.
+        $payload = [
+            'competition' => 'AGCFF U20',
+            'home_team_name' => 'Iraq U20',
+            'away_team_name' => 'Bahrain U20',
+            'performances' => [['team_side' => 'home', 'jersey_number' => 6]],
+        ];
+
+        $parsed = (new N8nClaudeGateway)->parseN8nPayload([$payload], schema: []);
+
+        $this->assertSame($payload, $parsed);
+    }
+
+    public function test_pre_parsed_freeform_call_extracts_text_field_when_present(): void
+    {
+        // Freeform (no schema) call against a workflow that pre-parses to
+        // an object. If the workflow happens to surface a 'text' field,
+        // use it directly; otherwise stringify.
+        $parsed = (new N8nClaudeGateway)->parseN8nPayload(
+            [['text' => 'Hello there']],
+            schema: null,
+        );
+        $this->assertSame(['text' => 'Hello there'], $parsed);
+
+        $parsed = (new N8nClaudeGateway)->parseN8nPayload(
+            [['arbitrary' => 'shape']],
+            schema: null,
+        );
+        $this->assertSame(['text' => '{"arbitrary":"shape"}'], $parsed);
+    }
+
     public function test_read_timeout_throws_callback_pending_and_keeps_row_pending(): void
     {
         // Simulates the cURL 28 read timeout we see when n8n's nginx
