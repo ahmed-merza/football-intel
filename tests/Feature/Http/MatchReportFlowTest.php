@@ -201,20 +201,31 @@ class MatchReportFlowTest extends TestCase
         $playerB = Player::factory()->create();
         $report = MatchReport::factory()->create();
 
-        $this->actingAs($admin)->post("/matches/{$report->id}/apply", [
-            'resolutions' => [0 => ['type' => 'existing', 'player_id' => $playerA->id]],
-        ])->assertRedirect();
+        $this->actingAs($admin)
+            ->post("/matches/{$report->id}/apply", [
+                'resolutions' => [0 => ['type' => 'existing', 'player_id' => $playerA->id]],
+            ])
+            ->assertRedirect()
+            ->assertSessionDoesntHaveErrors();
+
+        $this->assertSame(1, PlayerRecord::where('player_id', $playerA->id)->count(), 'First apply should write A');
 
         // Admin notices the wrong player was picked, goes back to preview,
         // re-applies. The applier wipes the prior fan-out so player B picks
         // it up cleanly and player A's data is gone. We need to bounce the
         // report back to `extracted` to allow the re-apply (the controller
-        // gates on that status).
-        $report->update(['status' => MatchReport::STATUS_EXTRACTED]);
+        // gates on that status). refresh() first — without it, Eloquent
+        // sees the in-memory status (loaded BEFORE the first apply set it
+        // to 'applied') already matches 'extracted' and skips the UPDATE
+        // as a no-op, leaving the DB stuck on 'applied'.
+        $report->refresh()->update(['status' => MatchReport::STATUS_EXTRACTED]);
 
-        $this->actingAs($admin)->post("/matches/{$report->id}/apply", [
-            'resolutions' => [0 => ['type' => 'existing', 'player_id' => $playerB->id]],
-        ])->assertRedirect();
+        $this->actingAs($admin)
+            ->post("/matches/{$report->id}/apply", [
+                'resolutions' => [0 => ['type' => 'existing', 'player_id' => $playerB->id]],
+            ])
+            ->assertRedirect()
+            ->assertSessionDoesntHaveErrors();
 
         $this->assertSame(0, PlayerRecord::where('player_id', $playerA->id)->count());
         $this->assertSame(1, PlayerRecord::where('player_id', $playerB->id)->count());

@@ -24,18 +24,17 @@
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
         <!--
-          Tests run against Postgres because the schema uses jsonb, partial
-          unique indexes, and pgvector — none of which work under sqlite.
-          Create the test DB once:
-              createdb football_intel_test
-              psql football_intel_test -c "CREATE EXTENSION vector; CREATE EXTENSION pg_trgm;"
-          Override DB_USERNAME / DB_PASSWORD here if your local Postgres
-          requires different credentials (CI sets them via env vars).
+          Tests run against an in-memory SQLite DB so the suite is portable
+          across local environments (devs may have Postgres, MySQL, or
+          neither installed). Migrations are written cross-DB friendly:
+              - jsonb falls back to json on non-pgsql
+              - partial unique indexes fall back to plain unique
+              - pgvector / pg_trgm migrations no-op on non-pgsql
+          Production runs MySQL; CI may run a pgsql matrix for parity tests
+          (override DB_CONNECTION=pgsql via env in that job).
         -->
-        <env name="DB_CONNECTION" value="pgsql"/>
-        <env name="DB_HOST" value="127.0.0.1"/>
-        <env name="DB_PORT" value="5432"/>
-        <env name="DB_DATABASE" value="football_intel_test"/>
+        <env name="DB_CONNECTION" value="sqlite"/>
+        <env name="DB_DATABASE" value=":memory:"/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>

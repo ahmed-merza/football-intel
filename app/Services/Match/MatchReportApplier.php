@@ -90,7 +90,11 @@ class MatchReportApplier
             );
         }
 
-        /** @var array<int, array<string, mixed>> $performances */
+        // Widened from array<int, array> because the data comes from a JSON
+        // column — at runtime any element could be a scalar/null if the
+        // extractor misbehaves, so the is_array() guard inside the loop is
+        // load-bearing.
+        /** @var array<int, mixed> $performances */
         $performances = $report->raw_extracted['performances'];
 
         DB::transaction(function () use ($report, $performances, $resolutions): void {
@@ -185,7 +189,7 @@ class MatchReportApplier
             return null;
         }
 
-        return match ($resolution['type'] ?? 'skip') {
+        return match ($resolution['type']) {
             'existing' => is_int($resolution['player_id'] ?? null) ? $resolution['player_id'] : null,
 
             'new' => $this->createPlayerFromResolution(

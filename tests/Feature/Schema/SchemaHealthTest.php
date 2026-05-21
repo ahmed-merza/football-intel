@@ -33,7 +33,7 @@ it('registers pgvector and pg_trgm extensions', function (): void {
     'pg_extension introspection is Postgres-only — pgvector/pg_trgm are the production stack.'
 );
 
-it('seeds the 8 canonical record categories inline with the migration', function (): void {
+it('seeds the canonical record categories inline with the migration', function (): void {
     $slugs = RecordCategory::orderBy('sort_order')->pluck('slug')->all();
 
     expect($slugs)->toEqual([
@@ -44,6 +44,10 @@ it('seeds the 8 canonical record categories inline with the migration', function
         RecordCategory::HYDRATION_SUPPLEMENT_PLAN,
         RecordCategory::COACH_FEEDBACK,
         RecordCategory::MATCH_ACTIVITY,
+        // Seeded by a follow-up migration alongside the AGCFF match-report
+        // ingestion (event-data per-player stats, distinct from match_activity
+        // which is reserved for GPS-derived match data).
+        RecordCategory::MATCH_PERFORMANCE,
         RecordCategory::OTHER,
     ]);
 });
