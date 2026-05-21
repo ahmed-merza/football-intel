@@ -212,7 +212,7 @@ return [
         'models' => [
             'classifier' => env('AI_MODEL_CLASSIFIER', 'haiku'),
             'extractor' => env('AI_MODEL_EXTRACTOR', 'opus'),
-            'match_extractor' => env('AI_MODEL_MATCH_EXTRACTOR', 'sonnet'),
+            'match_extractor' => env('AI_MODEL_MATCH_EXTRACTOR', 'haiku'),
             'nutritionist' => env('AI_MODEL_NUTRITIONIST', 'opus'),
             'vision' => env('AI_MODEL_VISION', 'opus'),
             'embedding' => env('AI_MODEL_EMBEDDING', 'voyage-3-large'),

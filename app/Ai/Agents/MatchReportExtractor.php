@@ -74,7 +74,12 @@ class MatchReportExtractor implements Agent, HasStructuredOutput
              — starters, substitutes who came on, AND named substitutes who never played.
 
         For every appearing player emit one entry in the performances array. Include the
-        unused substitutes too (set appearance="unused", rating=null, all counters at 0).
+        named-but-unused substitutes too, but for those emit ONLY the identity fields —
+        team_side, reported_name, jersey_number, match_position (if printed),
+        appearance="unused". Omit all stat fields (rating, goals, assists, passes,
+        tackles, etc.) entirely — they're implicitly zero for a player who never came on,
+        and our applier fills the zeros in itself. This keeps the response compact:
+        a 23-man squad with ~10 unused subs costs us ~5K fewer output tokens this way.
 
         Field rules:
           - team_side: "home" or "away" matching where the player appears in the report.
@@ -92,9 +97,11 @@ class MatchReportExtractor implements Agent, HasStructuredOutput
             actual full-time minute including stoppage if known; otherwise 90).
             Unused subs: both null.
           - minutes_played: minute_off minus minute_on (clamped to 0+).
-          - rating: editorial rating 0.0-10.0, or null for unused subs.
-          - All counter fields default to 0. Use the EXACT numbers printed (don't compute).
-            Where a stat is "x/y" in the report (e.g. tackles 4/5), x=succeeded, y=attempted.
+          - rating: editorial rating 0.0-10.0. Omit entirely for appearance="unused".
+          - All counter fields default to 0 for players who came on. Use the EXACT
+            numbers printed (don't compute). Where a stat is "x/y" in the report
+            (e.g. tackles 4/5), x=succeeded, y=attempted. Omit ALL counter fields
+            entirely for appearance="unused".
 
         Goalkeeper-only fields (goals_conceded, catches, parries, goal_kicks_*,
         aerial_clearances_*): only populated for GK rows; null for outfield.

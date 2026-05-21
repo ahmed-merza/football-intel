@@ -12,6 +12,7 @@ use App\Services\Ai\AgentRouter;
 use App\Services\Ai\CallbackPendingException;
 use App\Services\Ai\TextPreprocessor;
 use App\Services\Match\MatchReportApplier;
+use App\Services\Match\MatchReportTextPreprocessor;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -74,6 +75,7 @@ class ExtractMatchReportJob implements ShouldQueue
     public function handle(
         MatchReportApplier $applier,
         TextPreprocessor $preprocessor,
+        MatchReportTextPreprocessor $matchTrimmer,
         AgentRouter $router,
     ): void {
         /** @var MatchReport|null $report */
@@ -90,9 +92,17 @@ class ExtractMatchReportJob implements ShouldQueue
             return;
         }
 
-        // Match reports are mostly Latin tables + numbers; default extractor
-        // preprocessing applies. Don't truncate (would risk dropping the
-        // second team's player stats which appear later in the PDF).
+        // Two-stage preprocessing:
+        //   1. MatchReportTextPreprocessor drops the ~80% of the PDF that
+        //      isn't the per-player stat tables (formation diagrams, pass
+        //      networks, shot-by-shot detail, etc.). Anything we don't
+        //      capture today lives on the still-attached PDF for future
+        //      extractors to read.
+        //   2. The generic TextPreprocessor handles cross-cutting concerns
+        //      (Arabic boilerplate, page breaks, etc.).
+        // Cuts input tokens ~10×; keeps the model focused on the tables
+        // it actually needs to emit rows from.
+        $text = $matchTrimmer->trim($text);
         $text = $preprocessor->forExtractor($text);
 
         $report->update(['status' => MatchReport::STATUS_EXTRACTING]);
