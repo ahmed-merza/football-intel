@@ -12,12 +12,22 @@ use App\Models\RecordCategory;
 use App\Models\RecordMetric;
 use App\Services\Match\MatchReportApplier;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Bus;
 use InvalidArgumentException;
 use Tests\TestCase;
 
 class MatchReportApplierTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // applyExtraction fires the Phase-2 extractor batch (shot events
+        // etc.) at the end. Fake the bus so tests don't accidentally run
+        // those jobs synchronously against the real Anthropic API.
+        Bus::fake();
+    }
 
     public function test_apply_extraction_fills_match_meta_and_flips_status_to_extracted(): void
     {

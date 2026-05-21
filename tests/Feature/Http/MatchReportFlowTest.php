@@ -36,6 +36,13 @@ class MatchReportFlowTest extends TestCase
         config([
             'ai.providers.n8n.callback_secret' => self::SECRET,
         ]);
+
+        // Apply / extraction code paths fire Phase-2 enrichment jobs
+        // (shot events, etc.) at the end. Fake the bus globally so
+        // sync-queue tests don't actually run them — individual tests
+        // that need to assert dispatch behaviour call Bus::fake()
+        // again locally (idempotent).
+        Bus::fake();
     }
 
     // -- Preview ---------------------------------------------------------

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Match;
 
 use App\Jobs\ExtractMatchReportJob;
+use App\Jobs\ExtractMatchShotEventsJob;
 use App\Models\MatchPerformance;
 use App\Models\MatchReport;
 use App\Models\Player;
@@ -13,6 +14,7 @@ use App\Models\RecordCategory;
 use App\Services\Medical\ExtractionApplier;
 use App\Services\Medical\RecordMetricFanner;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 use Throwable;
@@ -66,6 +68,27 @@ class MatchReportApplier
             'status' => MatchReport::STATUS_EXTRACTED,
             'extraction_error' => null,
         ]);
+
+        $this->dispatchPhase2($report);
+    }
+
+    /**
+     * Phase-2 enrichment: dispatches per-section extractors that mine the
+     * sections of the PDF we don't capture in the main pass — shot
+     * events for now, position intervals / goalkeeper events / pass
+     * network / cross events to come. Each one writes to its own table
+     * and is independent of the others: a failed Phase-2 job doesn't
+     * affect the report's `extracted` status or the admin's ability to
+     * resolve players and apply the main payload.
+     *
+     * Best-effort: dispatched but not awaited. Failures land in
+     * Horizon's failed-jobs queue.
+     */
+    private function dispatchPhase2(MatchReport $report): void
+    {
+        Bus::chain([
+            new ExtractMatchShotEventsJob($report->id),
+        ])->dispatch();
     }
 
     /**

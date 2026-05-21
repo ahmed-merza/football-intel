@@ -213,6 +213,11 @@ return [
             'classifier' => env('AI_MODEL_CLASSIFIER', 'haiku'),
             'extractor' => env('AI_MODEL_EXTRACTOR', 'opus'),
             'match_extractor' => env('AI_MODEL_MATCH_EXTRACTOR', 'haiku'),
+            // Phase-2 match extractors — each handles a single section of
+            // the PDF (smaller input + output than the main extractor), so
+            // haiku is the default. Override individually via env if a
+            // section's payload grows beyond haiku's output budget.
+            'match_shot_events' => env('AI_MODEL_MATCH_SHOT_EVENTS', 'haiku'),
             'nutritionist' => env('AI_MODEL_NUTRITIONIST', 'opus'),
             'vision' => env('AI_MODEL_VISION', 'opus'),
             'embedding' => env('AI_MODEL_EMBEDDING', 'voyage-3-large'),

@@ -11,6 +11,7 @@ use App\Models\PlayerRecord;
 use App\Models\RecordCategory;
 use App\Services\Ai\N8nClaudeGateway;
 use App\Services\Match\MatchReportApplier;
+use App\Services\Match\MatchShotEventsApplier;
 use App\Services\Medical\ExtractionApplier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -45,6 +46,7 @@ class N8nWebhookController extends Controller
     public function __construct(
         private ExtractionApplier $applier,
         private MatchReportApplier $matchApplier,
+        private MatchShotEventsApplier $shotEventsApplier,
         private N8nClaudeGateway $gateway,
     ) {}
 
@@ -118,6 +120,8 @@ class N8nWebhookController extends Controller
                 $this->applyToAnalysis($pending, $parsed);
             } elseif ($pending->kind === PendingExtraction::KIND_MATCH_REPORT) {
                 $this->applyToMatchReport($pending, $parsed);
+            } elseif ($pending->kind === PendingExtraction::KIND_MATCH_SHOT_EVENTS) {
+                $this->applyToShotEvents($pending, $parsed);
             } elseif ($pending->record_id !== null) {
                 /** @var PlayerRecord|null $record */
                 $record = PlayerRecord::find($pending->record_id);
@@ -165,6 +169,30 @@ class N8nWebhookController extends Controller
             // will pick up async support in its own commit.
             default => null,
         };
+    }
+
+    /**
+     * Phase-2 callback handler for the shot-events extractor. Unlike
+     * the main match-report path, Phase-2 jobs don't manage status on
+     * the match_report row — they just apply their rows if the owner
+     * still exists. Re-applying the same payload is idempotent
+     * (applier wipes prior rows first).
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function applyToShotEvents(PendingExtraction $pending, array $payload): void
+    {
+        if ($pending->match_report_id === null) {
+            return;
+        }
+
+        /** @var MatchReport|null $report */
+        $report = MatchReport::find($pending->match_report_id);
+        if ($report === null) {
+            return;
+        }
+
+        $this->shotEventsApplier->apply($report, $payload);
     }
 
     /**
