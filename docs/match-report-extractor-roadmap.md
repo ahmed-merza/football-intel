@@ -58,152 +58,185 @@ extractors below can read it directly without re-uploading.
 
 ---
 
-## Phase 2 — multi-extractor expansion (when you want event-level analytics)
+## Phase 2 — textual event extractors (✅ shipped, partial)
 
-Each new extractor is **strictly additive**. It reads its own slice of the
-already-attached PDF, writes to its own dedicated table, and runs in parallel
-with the others. None of them touches `match_performances` or compete with the
-existing Phase-1 flow.
+The architectural pattern in this phase: each event-level section of the PDF
+gets its own preprocessor + agent + applier + migration. Sections that are
+**textually extractable** ship in Phase 2. Sections that are **visually
+encoded** (pitch diagrams, networks, heatmaps) defer to Phase 3 vision work.
 
-### Architecture
+### Architecture (as built)
 
 ```
                   ExtractTextFromAttachmentJob
                             ↓
-                  ExtractMatchReportJob  (Phase 1, unchanged)
+                  ExtractMatchReportJob  (Phase 1)
                             ↓
-                  applyExtraction → match_reports.status = 'extracted'
+                  MatchReportApplier::applyExtraction
                             ↓
-                  (admin still resolves players here, exactly as today)
+                  match_reports.status = 'extracted'
                             ↓
-              ┌─────────────┴──────────────┐
-              │                            │
-       Bus::batch dispatches              MatchReportApplier::applyResolution
-       Phase-2 extractors in parallel     (Phase 1, unchanged — match_performances)
-              ↓
+                  Bus::chain dispatches Phase-2 extractors serially
+                  (serial, not parallel — keeps n8n machine sane)
+                            ↓
    ┌────────────────────────────────────────────────────────────────┐
-   │ ExtractMatchShotEventsJob    → match_shot_events                │
-   │ ExtractMatchPassNetworkJob   → match_pass_edges                 │
-   │ ExtractMatchPositionsJob     → match_position_intervals         │
-   │ ExtractMatchCrossEventsJob   → match_cross_events               │
-   │ ExtractMatchGoalkeeperJob    → match_goalkeeper_events          │
+   │ ExtractMatchShotEventsJob       → match_shot_events            │
+   │ ExtractMatchGoalkeeperEventsJob → match_goalkeeper_events      │
    └────────────────────────────────────────────────────────────────┘
-              ↓
-   Each writes to its own table — independent retry, independent failure
 ```
 
-### Per-extractor design template
+Each Phase-2 job:
+- Reads `attachment.extracted_text` (Phase 1 already populated it)
+- Runs a section-specific preprocessor to slice down to the relevant pages
+- Routes through `AgentRouter` → `N8nClaudeGateway` with full async-callback
+  safety net (same `CallbackPendingException` handling as Phase 1)
+- Applies to its own dedicated table — failure is **best-effort**, doesn't
+  block the main report's `extracted` status or the admin's player-resolution UI
 
-Every new extractor follows the same shape — copy the Phase-1 trio and adapt:
+### What shipped in Phase 2
+
+| Extractor | Section | Table | Status |
+|---|---|---|---|
+| `MatchShotEventsExtractor` | Shot Details (pages 10–21) | `match_shot_events` | ✅ shipped |
+| `MatchGoalkeeperEventsExtractor` | Goalkeeper (pages 44–47) | `match_goalkeeper_events` | ✅ shipped |
+| (extended `MatchReportExtractor`) | Match Summary panel (page 1) | new columns on `match_reports` | ✅ shipped — possession % + per-half scores |
+
+### What we deferred from Phase 2 (originally planned, didn't ship)
+
+| Originally planned | Why deferred |
+|---|---|
+| Position intervals (per-player x/y per 15-min bucket) | Visual only in PDF text — needs vision, not text extraction. See Phase 3. |
+| Pass network (player-to-player edge graph) | Visual only — needs vision. |
+| Cross events (per-cross deliverer + receiver) | Visual map + a textual ranking table; the per-cross detail isn't reliably textual. Defer. |
+| Pass details breakdown (by area / direction / length) | Already in `match_performances.raw_extracted` JSON — needs UI surfacing, not a new extractor. Quick win whenever. |
+
+### Per-extractor anatomy (the template, locked in)
+
+The two shipped extractors use the same skeleton — when the next textual one
+needs adding, copy and adapt:
 
 ```
-app/Ai/Agents/
-  ExtractMatchShotEventsAgent.php     # provider/model + JSON schema + prompt
+database/migrations/
+  YYYY_MM_DD_create_match_<section>_events_table.php
+                                      # FK to match_reports cascade,
+                                      # sequence, minute, team_side,
+                                      # jersey_number, reported_name,
+                                      # outcome, body_part, raw_extracted JSON
 
-app/Jobs/
-  ExtractMatchShotEventsJob.php       # mirrors ExtractMatchReportJob:
-                                      #  1. load attachment.extracted_text
-                                      #  2. pass through a section-specific
-                                      #     trimmer that keeps ONLY the shot
-                                      #     detail pages (~pages 10-21)
-                                      #  3. AgentRouter→n8n→Claude
-                                      #  4. apply via applier service
-                                      #  Handles CallbackPendingException the
-                                      #  same way; gets its own kind constant
-                                      #  on PendingExtraction.
+app/Models/
+  Match<Section>Event.php             # Eloquent + relations
+                                      # outcome constants
+                                      # scope: bahrain() etc.
 
 app/Services/Match/
-  ExtractMatchShotEventsApplier.php   # writes to match_shot_events table
-                                      # links back to match_report_id
-                                      # nullable player_id (resolved later or
-                                      # via a fuzzy match against the
-                                      # already-applied match_performances)
+  Match<Section>TextPreprocessor.php  # nthOccurrence() pattern: skip TOC
+                                      # entry, find section heading, end at
+                                      # next major section
+  Match<Section>EventsApplier.php     # idempotent wipe + reinsert,
+                                      # team_side map from extractor's
+                                      # 'home'/'away' to our 'bahrain'/'opponent'
 
-database/migrations/
-  YYYY_MM_DD_create_match_shot_events_table.php
-                                      # match_report_id, minute, second,
-                                      # team_side, player_id (FK NULL),
-                                      # reported_name (always), body_part,
-                                      # outcome, x, y (optional spatial)
+app/Ai/Agents/
+  Match<Section>EventsExtractor.php   # prompt + JSON schema
+                                      # provider+model from ai.football_intel
+
+app/Jobs/
+  ExtractMatch<Section>EventsJob.php  # AgentRouter → CallbackPendingException →
+                                      # applier. failed() hook logs only —
+                                      # best-effort.
+
+app/Http/Controllers/
+  N8nWebhookController                # new applyTo<Section>Events() arm
+                                      # dispatched by KIND_MATCH_<SECTION>_EVENTS
+
+app/Services/Match/
+  MatchReportApplier::dispatchPhase2  # add the new job to the Bus::chain
+
+tests/Unit/Services/Match/
+  Match<Section>EventsApplierTest.php
+  Match<Section>TextPreprocessorTest.php
 ```
 
-### Per-extractor: PDF section ↔ DB table
+### Player linkage (works the same in Phase 1 + Phase 2)
 
-| Extractor | PDF section (page range) | DB table | Estimated output tokens |
+Phase-2 event rows store `(jersey_number, team_side)` only — no `player_id`.
+After admin runs Phase-1's resolution UI on the match, the JOIN
+`(match_report_id, team_side, jersey_number)` against `match_performances`
+gives every event its player. No backfill, no race condition.
+
+### Cost + time per match (actual, post-trim)
+
+| Path | Calls | Wall-clock | Bills |
 |---|---|---|---|
-| `MatchShotEventsExtractor` | "Shot Details" (10–21) | `match_shot_events` | ~6K (20–25 shots × ~250 tok) |
-| `MatchPassNetworkExtractor` | "Pass Network" / "Passes : Details" (27–37) | `match_pass_edges` | ~4K (top-N edges) |
-| `MatchPositionTimelineExtractor` | "Average Position : 15 Minute Intervals" (4–7) | `match_position_intervals` | ~8K (22 players × 6 intervals × ~60 tok) |
-| `MatchCrossEventsExtractor` | "Open play crosses" (42–43) | `match_cross_events` | ~2K |
-| `MatchGoalkeeperEventsExtractor` | "Goalkeeper" (44–47) | `match_goalkeeper_events` | ~2K |
-
-**Each fits comfortably under 16K output tokens**, even on haiku. None pushes the
-CLI's 32K cap. None requires sonnet/opus unless the report scales considerably
-beyond AGCFF U20 fixtures.
-
-### Section-specific text preprocessor
-
-`MatchReportTextPreprocessor` (Phase 1) already isolates the Player Stats tables
-by marker-based slicing. Each Phase-2 extractor needs the same treatment for its
-own section. Two options:
-
-- **Option A** (simpler): one preprocessor per extractor, each looking for its
-  own markers (e.g. `ShotEventsPreprocessor` slices from "Shot Details" to the
-  next major section). 5 small classes, very readable.
-- **Option B** (DRY): single `MatchReportSectionExtractor` service with a `slice($text, $sectionName)`
-  method. Markers live in a registry. Slightly more abstract but easier to
-  extend if section names drift.
-
-Recommendation: ship Option A for the first two extractors, refactor to Option B
-when the third one shows up.
-
-### Player linkage (the cross-cutting concern)
-
-Most Phase-2 tables reference a player — but the AGCFF report identifies players
-by `jersey_number` only at the event level (not always by name). Resolving event
-rows to player IDs comes for free if we run extractors **after** Phase 1's
-`applyResolution` has run:
-
-```php
-$playerId = MatchPerformance::query()
-    ->where('match_report_id', $matchReport->id)
-    ->where('team_side', $eventTeamSide)
-    ->where('jersey_number', $eventJersey)
-    ->whereNotNull('player_id')
-    ->value('player_id');
-```
-
-One indexed query per event. The `(match_report_id, team_side)` index from the
-existing migration already covers this; only need a small index on
-`(match_report_id, team_side, jersey_number)` if it becomes hot.
-
-### Cost + time per match (rough)
-
-Assuming sonnet at $3/MTok input + $15/MTok output:
-
-| Phase | Calls | Input tokens | Output tokens | Cost per match | Wall-clock |
-|---|---|---|---|---|---|
-| Phase 1 (today, after trim) | 1 | 5K | 25K | $0.39 | 2 min |
-| Phase 2 (all 5 new extractors) | 5 | 3K each = 15K | ~22K total | $0.38 | 2 min (parallel) |
-| **Total per fully-extracted match** | **6** | **20K** | **47K** | **$0.77** | **~2 min** |
-
-If sonnet stays slow on the n8n CLI, drop to opus for the smaller Phase-2 calls
-(8K-16K output fits opus comfortably; haiku probably too).
+| Phase 1 (post-trim, haiku) | 1 | 2–5 min | Claude Code subscription |
+| Phase 2 shot events | 1 | 1–2 min | Claude Code subscription |
+| Phase 2 GK events | 1 | <1 min | Claude Code subscription |
+| **Total per fully-extracted match** | **3** | **~5 min** | one Claude Code subscription |
 
 ---
 
-## Phase 3 — analytics & UI surfaces (later)
+## Phase 3 — vision-based extractors + remaining textual surfacing (deferred)
 
-Once Phase 2 tables exist, new UI features become straightforward:
+### Why Phase 3 exists (the spatial gap)
 
-- **Per-player shot map** — render `match_shot_events.x, y` as dots on a pitch SVG
-- **Pass network graph** — force-directed layout from `match_pass_edges`
-- **Heatmap timeline** — `match_position_intervals` aggregated into a heatmap per match
-- **Goal/assist build-up chain replay** — walk `match_shot_events.buildup_chain`
-  back through `match_pass_edges`
+Roughly **30–40% of the PDF's data is visual** — pitch diagrams, network
+graphs, location heatmaps. These can't be extracted from `pdftotext` output;
+they need vision on the rendered page images. Specifically:
 
-None of these need schema changes once Phase 2's tables are in. They're pure
-render layers on top of the same JSON-as-events data.
+- Formation diagrams (Overview page)
+- Average position per player per 15-min interval (pages 2–7)
+- Shot location + buildup path coordinates (pages 10–21)
+- Pass network player-to-player edges (pages 27–34)
+- Cross / duel / save location maps (pages 42–47)
+
+The decision recorded here (2026-05): **vision is deferred until a coach-side
+need surfaces.** For the nutritionist's role the per-player aggregate data
+captured in Phase 1 + Phase 2 is sufficient. Spatial data is tactical-team
+territory.
+
+### Four ways to add vision (when the time comes)
+
+| Option | Mechanism | Cost / friction |
+|---|---|---|
+| **A** — Anthropic API direct via laravel/ai | Vision-agent uses `provider='anthropic'`, real API key needed; PDFs rendered locally via `pdftoppm` and sent as image inputs | ~$0.05/match in tokens — pays Anthropic separately from the Claude Code subscription. Cleanest integration with existing AgentRouter. |
+| **B** — Extend n8n proxy + Claude Code CLI | Image transfer (HTTP receive node → write to `/tmp` on SSH host), CLI invocation with `@/path/to/image.png` reference, cleanup step | 1–2 days of work; CLI version-dependent on the SSH host; bills the same Claude Code subscription |
+| **C** — Ollama vision (`llama3.2-vision:11b`) on LAN | Vision-agent uses `provider='ollama'` against the existing LAN box | Free, local, quality much weaker than Claude vision on dense small-text diagrams |
+| **D** — Skip vision entirely | Stay with textual extractors; rebuild any specific spatial need with a different data source | Loses the 30–40% spatial gap; acceptable if those needs don't materialise |
+
+Recommended order if the need surfaces: **A first** (clean architectural fit,
+low operational risk, small per-match cost), **C only if budget is hard zero
+and quality compromises are acceptable**, **B only if A becomes operationally
+unviable**, **D as a graceful "we don't need this" stance**.
+
+### Remaining textual surfacing wins (any time)
+
+These don't need new extractors at all — the data is already on the
+`match_reports` / `match_performances` rows, just not exposed in the UI:
+
+- **Pass details breakdown** (per-player passes by area × direction × length)
+  already lives in `match_performances.raw_extracted['pass_breakdown']`.
+  Expose via the timeline `details` payload + a small render component.
+- **Team-shape numbers** (compactness, width, third-line depth — `49.2m`,
+  `32.5m`, etc. on the Average Position page) are textually present and
+  fit on `match_reports` as a JSON column. ~30 min to add to
+  MatchReportExtractor's schema + a migration. Limited interpretability
+  without AGCFF documentation but the numbers are real.
+- **Half-time + half-by-half summary breakdown** already partly captured
+  in Phase 2 option C — could surface more of the page-1 Match Summary
+  panel (shots/SOT per half, fouls per half) if the report prints them.
+
+### Phase 3 UI surfaces (after vision)
+
+Once vision-based extractors exist, new UI features unlock:
+
+- **Per-player shot map** — render shot x/y as dots on a pitch SVG
+- **Pass network graph** — force-directed layout from edge weights
+- **Heatmap timeline** — average position aggregated per 15-min bucket
+- **Goal/assist build-up chain replay** — walk buildup chain back through
+  pass network
+
+None need schema changes beyond what each vision extractor would write —
+they're pure render layers.
 
 ---
 

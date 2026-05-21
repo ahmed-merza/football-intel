@@ -52,6 +52,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $crosses_attempted
  * @property int $crosses_succeeded
  * @property int $controls_under_pressure
+ * @property array<string, mixed>|null $pass_breakdown
  * @property int $tackles_attempted
  * @property int $tackles_succeeded
  * @property int $aerial_duels_total
@@ -102,6 +103,7 @@ class MatchPerformance extends Model
 
         'passes_total', 'passes_succeeded', 'pass_accuracy_pct', 'key_passes',
         'crosses_attempted', 'crosses_succeeded', 'controls_under_pressure',
+        'pass_breakdown',
 
         'tackles_attempted', 'tackles_succeeded',
         'aerial_duels_total', 'aerial_duels_won',
@@ -121,6 +123,7 @@ class MatchPerformance extends Model
         'rating' => 'decimal:1',
         'pass_accuracy_pct' => 'decimal:2',
         'raw_extracted' => 'array',
+        'pass_breakdown' => 'array',
     ];
 
     /** @return BelongsTo<MatchReport, $this> */

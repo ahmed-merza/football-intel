@@ -330,6 +330,11 @@ class MatchReportApplier
             'aerial_clearances_attempted' => $this->int($perf['aerial_clearances_attempted'] ?? null),
             'aerial_clearances_succeeded' => $this->int($perf['aerial_clearances_succeeded'] ?? null),
 
+            // Per-player pass breakdown — sanitised so the JSON column only
+            // ever contains the expected shape. Null when the extractor
+            // didn't emit it (older reports / missing section).
+            'pass_breakdown' => $this->sanitisePassBreakdown($perf['pass_breakdown'] ?? null),
+
             // Keep the raw extractor row for diffing + admin re-views.
             'raw_extracted' => $perf,
         ]);
@@ -570,6 +575,59 @@ class MatchReportApplier
         }
 
         return $float;
+    }
+
+    /**
+     * Defensive sanitisation of the pass_breakdown nested object from the
+     * extractor. Returns null for missing / malformed input so the
+     * pass_breakdown column stays either "valid full shape" or null —
+     * never partial garbage. Each sub-bucket is coerced to {succeeded, total}
+     * with non-negative integer values; missing buckets are dropped, not
+     * zero-filled, so the UI can distinguish "report didn't print this"
+     * from "player had 0 successful long passes".
+     *
+     * @return array<string, array<string, array{succeeded: int, total: int}>>|null
+     */
+    private function sanitisePassBreakdown(mixed $raw): ?array
+    {
+        if (! is_array($raw)) {
+            return null;
+        }
+
+        $groupings = [
+            'by_area' => ['defensive_third', 'middle_third', 'final_third'],
+            'by_direction' => ['forward', 'sideways', 'backward'],
+            'by_length' => ['short', 'medium', 'long'],
+        ];
+
+        $clean = [];
+        foreach ($groupings as $group => $buckets) {
+            $rawGroup = $raw[$group] ?? null;
+            if (! is_array($rawGroup)) {
+                continue;
+            }
+            $cleanGroup = [];
+            foreach ($buckets as $bucket) {
+                $rawBucket = $rawGroup[$bucket] ?? null;
+                if (! is_array($rawBucket)) {
+                    continue;
+                }
+                $succeeded = $this->int($rawBucket['succeeded'] ?? null);
+                $total = $this->int($rawBucket['total'] ?? null);
+                if ($succeeded === null && $total === null) {
+                    continue;
+                }
+                $cleanGroup[$bucket] = [
+                    'succeeded' => max(0, $succeeded ?? 0),
+                    'total' => max(0, $total ?? 0),
+                ];
+            }
+            if ($cleanGroup !== []) {
+                $clean[$group] = $cleanGroup;
+            }
+        }
+
+        return $clean === [] ? null : $clean;
     }
 
     private function pct(int $succeeded, int $total): ?float

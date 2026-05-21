@@ -108,6 +108,18 @@ class MatchReportExtractor implements Agent, HasStructuredOutput
         Goalkeeper-only fields (goals_conceded, catches, parries, goal_kicks_*,
         aerial_clearances_*): only populated for GK rows; null for outfield.
 
+        Pass breakdown (pass_breakdown object, OPTIONAL — emit when the Player Stats
+        Distribution table prints these columns, otherwise omit):
+          - by_area: defensive_third / middle_third / final_third — each is
+            {succeeded: int, total: int} from the "Passes In <Third>" columns.
+          - by_direction: forward / sideways / backward — each is {succeeded, total}
+            from the "Passes Forward / Sideways / Backward" columns.
+          - by_length: short / medium / long — each is {succeeded, total} from
+            the "Short Passes" / "Medium Range Passes" / "Long Passes" columns.
+          The succeeded count for each sub-bucket should match the number printed
+          before the slash (e.g. "11/13" → succeeded=11, total=13). Skip
+          appearance="unused" rows entirely.
+
         For Bahrain national-team fixtures, the Bahrain side is identifiable by its team
         name containing "Bahrain". The opposing team is opponent_name.
 
@@ -229,6 +241,37 @@ class MatchReportExtractor implements Agent, HasStructuredOutput
             'goal_kicks_succeeded' => $s->integer(),
             'aerial_clearances_attempted' => $s->integer(),
             'aerial_clearances_succeeded' => $s->integer(),
+
+            // Per-player pass breakdown — optional nested object. Schema
+            // intentionally permissive: any of the three groupings can be
+            // omitted entirely if the report doesn't print them, and any
+            // sub-bucket within a group can be missing (treated as zero by
+            // the applier).
+            'pass_breakdown' => $s->object(fn (JsonSchema $b): array => [
+                'by_area' => $b->object(fn (JsonSchema $a): array => [
+                    'defensive_third' => $this->passBucketSchema($a),
+                    'middle_third' => $this->passBucketSchema($a),
+                    'final_third' => $this->passBucketSchema($a),
+                ]),
+                'by_direction' => $b->object(fn (JsonSchema $d): array => [
+                    'forward' => $this->passBucketSchema($d),
+                    'sideways' => $this->passBucketSchema($d),
+                    'backward' => $this->passBucketSchema($d),
+                ]),
+                'by_length' => $b->object(fn (JsonSchema $l): array => [
+                    'short' => $this->passBucketSchema($l),
+                    'medium' => $this->passBucketSchema($l),
+                    'long' => $this->passBucketSchema($l),
+                ]),
+            ]),
+        ]);
+    }
+
+    private function passBucketSchema(JsonSchema $schema): mixed
+    {
+        return $schema->object(fn (JsonSchema $b): array => [
+            'succeeded' => $b->integer(),
+            'total' => $b->integer(),
         ]);
     }
 }

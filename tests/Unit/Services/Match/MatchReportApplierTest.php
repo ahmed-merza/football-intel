@@ -148,6 +148,99 @@ class MatchReportApplierTest extends TestCase
         app(MatchReportApplier::class)->applyResolution($report, []);
     }
 
+    public function test_apply_resolution_persists_pass_breakdown_when_extractor_emits_it(): void
+    {
+        $player = Player::factory()->create(['full_name' => 'Mohammed Alyaqoob']);
+        $report = MatchReport::factory()->create();
+
+        // Mutate the factory payload so the first performance has a pass_breakdown.
+        $raw = $report->raw_extracted;
+        $raw['performances'][0]['pass_breakdown'] = [
+            'by_area' => [
+                'defensive_third' => ['succeeded' => 11, 'total' => 13],
+                'middle_third' => ['succeeded' => 14, 'total' => 15],
+                'final_third' => ['succeeded' => 4, 'total' => 6],
+            ],
+            'by_direction' => [
+                'forward' => ['succeeded' => 0, 'total' => 0],
+                'sideways' => ['succeeded' => 0, 'total' => 0],
+                'backward' => ['succeeded' => 17, 'total' => 27],
+            ],
+            'by_length' => [
+                'short' => ['succeeded' => 6, 'total' => 15],
+                'medium' => ['succeeded' => 10, 'total' => 10],
+                'long' => ['succeeded' => 2, 'total' => 3],
+            ],
+        ];
+        $report->update(['raw_extracted' => $raw]);
+
+        app(MatchReportApplier::class)->applyResolution($report, [
+            0 => ['type' => 'existing', 'player_id' => $player->id],
+        ]);
+
+        $perf = MatchPerformance::where('match_report_id', $report->id)
+            ->where('jersey_number', 6)
+            ->firstOrFail();
+
+        $this->assertNotNull($perf->pass_breakdown);
+        $this->assertSame(11, $perf->pass_breakdown['by_area']['defensive_third']['succeeded']);
+        $this->assertSame(13, $perf->pass_breakdown['by_area']['defensive_third']['total']);
+        $this->assertSame(17, $perf->pass_breakdown['by_direction']['backward']['succeeded']);
+        $this->assertSame(2, $perf->pass_breakdown['by_length']['long']['succeeded']);
+    }
+
+    public function test_apply_resolution_leaves_pass_breakdown_null_when_extractor_omits_it(): void
+    {
+        $player = Player::factory()->create();
+        $report = MatchReport::factory()->create();
+        // factory's default has no pass_breakdown on any performance.
+
+        app(MatchReportApplier::class)->applyResolution($report, [
+            0 => ['type' => 'existing', 'player_id' => $player->id],
+        ]);
+
+        $perf = MatchPerformance::where('match_report_id', $report->id)
+            ->where('jersey_number', 6)
+            ->firstOrFail();
+        $this->assertNull($perf->pass_breakdown);
+    }
+
+    public function test_pass_breakdown_sanitiser_drops_malformed_subbuckets(): void
+    {
+        $player = Player::factory()->create();
+        $report = MatchReport::factory()->create();
+
+        // Half-garbage payload: some buckets valid, some missing keys, one with non-numeric values.
+        $raw = $report->raw_extracted;
+        $raw['performances'][0]['pass_breakdown'] = [
+            'by_area' => [
+                'defensive_third' => ['succeeded' => 5, 'total' => 7],
+                'middle_third' => 'not an array',
+                'final_third' => ['succeeded' => 'NaN', 'total' => 'also NaN'],
+            ],
+            'by_direction' => 'totally wrong',
+        ];
+        $report->update(['raw_extracted' => $raw]);
+
+        app(MatchReportApplier::class)->applyResolution($report, [
+            0 => ['type' => 'existing', 'player_id' => $player->id],
+        ]);
+
+        $bd = MatchPerformance::where('match_report_id', $report->id)
+            ->where('jersey_number', 6)
+            ->firstOrFail()
+            ->pass_breakdown;
+
+        $this->assertNotNull($bd);
+        $this->assertArrayHasKey('by_area', $bd);
+        $this->assertSame(5, $bd['by_area']['defensive_third']['succeeded']);
+        // Malformed buckets dropped, not zeroed.
+        $this->assertArrayNotHasKey('middle_third', $bd['by_area']);
+        $this->assertArrayNotHasKey('final_third', $bd['by_area']);
+        // Malformed grouping omitted entirely.
+        $this->assertArrayNotHasKey('by_direction', $bd);
+    }
+
     public function test_apply_resolution_writes_performance_rows_for_every_player(): void
     {
         $player = Player::factory()->create(['full_name' => 'Mohammed Alyaqoob']);

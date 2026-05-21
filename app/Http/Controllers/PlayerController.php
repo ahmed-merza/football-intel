@@ -584,6 +584,12 @@ class PlayerController extends Controller
             'goals_conceded' => $intOrNull($raw['goals_conceded'] ?? null),
             'catches' => $intOrNull($raw['catches'] ?? null),
             'parries' => $intOrNull($raw['parries'] ?? null),
+
+            // Pass breakdown — surfaced as-is from the raw extractor slice
+            // so the timeline render can display it. Null when the extractor
+            // didn't emit it (older matches, or AGCFF reports that don't
+            // print the Distribution section).
+            'pass_breakdown' => is_array($raw['pass_breakdown'] ?? null) ? $raw['pass_breakdown'] : null,
         ];
     }
 

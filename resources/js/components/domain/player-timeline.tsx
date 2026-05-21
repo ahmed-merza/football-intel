@@ -66,6 +66,27 @@ type MatchPerformanceDetails = {
     goals_conceded: number | null;
     catches: number | null;
     parries: number | null;
+    pass_breakdown: PassBreakdown | null;
+};
+
+type PassBucket = { succeeded: number; total: number };
+
+type PassBreakdown = {
+    by_area?: {
+        defensive_third?: PassBucket;
+        middle_third?: PassBucket;
+        final_third?: PassBucket;
+    };
+    by_direction?: {
+        forward?: PassBucket;
+        sideways?: PassBucket;
+        backward?: PassBucket;
+    };
+    by_length?: {
+        short?: PassBucket;
+        medium?: PassBucket;
+        long?: PassBucket;
+    };
 };
 
 type TimelineEntry = {
@@ -727,8 +748,111 @@ function MatchPerformanceCard({
                     ]}
                 />
             </div>
+
+            {details.pass_breakdown && (
+                <PassBreakdownPanel breakdown={details.pass_breakdown} />
+            )}
         </div>
     );
+}
+
+function PassBreakdownPanel({ breakdown }: { breakdown: PassBreakdown }) {
+    const hasArea = breakdown.by_area && bucketSetHasData(breakdown.by_area);
+    const hasDirection =
+        breakdown.by_direction && bucketSetHasData(breakdown.by_direction);
+    const hasLength =
+        breakdown.by_length && bucketSetHasData(breakdown.by_length);
+
+    if (!hasArea && !hasDirection && !hasLength) {
+        return null;
+    }
+
+    return (
+        <div className="mt-2 border-t pt-2">
+            <div className="mb-2 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
+                Pass breakdown
+            </div>
+            <div className="grid grid-cols-1 gap-3 text-xs sm:grid-cols-3">
+                {hasArea && (
+                    <PassBucketGroup
+                        label="By third"
+                        buckets={[
+                            ['Defensive', breakdown.by_area?.defensive_third],
+                            ['Middle', breakdown.by_area?.middle_third],
+                            ['Final', breakdown.by_area?.final_third],
+                        ]}
+                    />
+                )}
+                {hasDirection && (
+                    <PassBucketGroup
+                        label="By direction"
+                        buckets={[
+                            ['Forward', breakdown.by_direction?.forward],
+                            ['Sideways', breakdown.by_direction?.sideways],
+                            ['Backward', breakdown.by_direction?.backward],
+                        ]}
+                    />
+                )}
+                {hasLength && (
+                    <PassBucketGroup
+                        label="By length"
+                        buckets={[
+                            ['Short (<15m)', breakdown.by_length?.short],
+                            ['Medium (15-30m)', breakdown.by_length?.medium],
+                            ['Long (>30m)', breakdown.by_length?.long],
+                        ]}
+                    />
+                )}
+            </div>
+        </div>
+    );
+}
+
+function PassBucketGroup({
+    label,
+    buckets,
+}: {
+    label: string;
+    buckets: [string, PassBucket | undefined][];
+}) {
+    return (
+        <div>
+            <div className="mb-1 text-[10px] tracking-wide text-muted-foreground uppercase">
+                {label}
+            </div>
+            <dl className="space-y-0.5">
+                {buckets.map(([k, v]) => (
+                    <div
+                        key={k}
+                        className="flex items-baseline justify-between gap-2"
+                    >
+                        <dt className="truncate text-muted-foreground">{k}</dt>
+                        <dd data-numeric className="font-medium tabular-nums">
+                            {formatBucket(v)}
+                        </dd>
+                    </div>
+                ))}
+            </dl>
+        </div>
+    );
+}
+
+function bucketSetHasData(
+    set: Record<string, PassBucket | undefined>,
+): boolean {
+    return Object.values(set).some(
+        (b) => b !== undefined && (b.succeeded > 0 || b.total > 0),
+    );
+}
+
+function formatBucket(b: PassBucket | undefined): string {
+    if (!b || b.total === 0) {
+        return '—';
+    }
+
+    const pct = (b.succeeded / b.total) * 100;
+
+    return `${b.succeeded}/${b.total} (${pct.toFixed(0)}%)`;
 }
 
 function StatGroup({
