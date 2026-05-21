@@ -63,6 +63,7 @@ export default function MatchesShow({ match, performances }: PageProps) {
         ) {
             return;
         }
+
         setDeleting(true);
         router.delete(`/matches/${match.id}`, {
             onFinish: () => setDeleting(false),
@@ -239,6 +240,7 @@ function PerformancesCard({
 function fixtureLabel(m: MatchSummary): string {
     const home = m.home_team_name ?? '—';
     const away = m.away_team_name ?? '—';
+
     if (m.home_score !== null && m.away_score !== null) {
         return `${home} ${m.home_score} – ${m.away_score} ${away}`;
     }
@@ -250,6 +252,7 @@ function pageTitle(m: MatchSummary): string {
     if (m.home_team_name && m.away_team_name) {
         return `${m.home_team_name} vs ${m.away_team_name}`;
     }
+
     return 'Match report';
 }
 

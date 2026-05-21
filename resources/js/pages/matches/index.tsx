@@ -53,11 +53,14 @@ const STATUS_LABEL: Record<MatchReportStatus, string> = {
 
 const STATUS_TONE: Record<MatchReportStatus, string> = {
     pending: 'bg-muted text-muted-foreground',
-    extracting: 'bg-blue-100 text-blue-900 dark:bg-blue-950/40 dark:text-blue-200',
+    extracting:
+        'bg-blue-100 text-blue-900 dark:bg-blue-950/40 dark:text-blue-200',
     awaiting_callback:
         'bg-blue-100 text-blue-900 dark:bg-blue-950/40 dark:text-blue-200',
-    extracted: 'bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200',
-    applied: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200',
+    extracted:
+        'bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200',
+    applied:
+        'bg-emerald-100 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200',
     failed: 'bg-destructive/10 text-destructive',
 };
 
@@ -147,7 +150,9 @@ function ReportRow({ report }: { report: Report }) {
                     <>
                         {report.competition}
                         {report.stage && (
-                            <span className="ml-1 text-xs">— {report.stage}</span>
+                            <span className="ml-1 text-xs">
+                                — {report.stage}
+                            </span>
                         )}
                     </>
                 ) : (
@@ -160,7 +165,10 @@ function ReportRow({ report }: { report: Report }) {
             <TableCell>
                 <Badge
                     variant="outline"
-                    className={cn('border-transparent', STATUS_TONE[report.status])}
+                    className={cn(
+                        'border-transparent',
+                        STATUS_TONE[report.status],
+                    )}
                 >
                     {STATUS_LABEL[report.status]}
                 </Badge>
@@ -177,6 +185,7 @@ function ReportRow({ report }: { report: Report }) {
 function fixtureLabel(r: Report): string {
     const home = r.home_team_name ?? '—';
     const away = r.away_team_name ?? '—';
+
     if (r.home_score !== null && r.away_score !== null) {
         return `${home} ${r.home_score} – ${r.away_score} ${away}`;
     }
@@ -190,9 +199,9 @@ function EmptyState() {
             <Trophy className="size-10 text-muted-foreground" />
             <div className="text-sm font-medium">No match reports yet</div>
             <p className="max-w-md text-xs text-muted-foreground">
-                Upload an AGCFF or Wyscout match-report PDF and we&apos;ll extract
-                every player&apos;s performance, then let you resolve them onto
-                your existing roster.
+                Upload an AGCFF or Wyscout match-report PDF and we&apos;ll
+                extract every player&apos;s performance, then let you resolve
+                them onto your existing roster.
             </p>
             <Button asChild size="sm" className="mt-1">
                 <Link href="/matches/upload">

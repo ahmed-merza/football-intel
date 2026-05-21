@@ -204,7 +204,9 @@ function ProcessingPanel({ match }: { match: MatchSummary }) {
     // until status moves out of an in-flight state.
     useEffect(() => {
         const tick = setInterval(() => {
-            router.reload({ only: ['match', 'performances', 'active_players'] });
+            router.reload({
+                only: ['match', 'performances', 'active_players'],
+            });
         }, 5000);
 
         return () => clearInterval(tick);
@@ -286,8 +288,10 @@ function ResolutionForm({
         let skipped = 0;
         let creating = 0;
         let unresolved = 0;
+
         for (const row of bahrainRows) {
             const r = resolutions[row.index];
+
             if (!r) {
                 unresolved++;
             } else if (r.type === 'existing') {
@@ -449,6 +453,7 @@ function BahrainRowsCard({
                                         setResolutions((prev) => {
                                             const next = { ...prev };
                                             delete next[row.index];
+
                                             return next;
                                         })
                                     }
@@ -486,17 +491,24 @@ function BahrainRow({
                     position: positionFamily(row.match_position) ?? undefined,
                 },
             });
+
             return;
         }
+
         if (value === '__skip') {
             setResolution({ type: 'skip' });
+
             return;
         }
+
         if (value === '__clear') {
             clearResolution();
+
             return;
         }
+
         const playerId = Number(value);
+
         if (Number.isFinite(playerId)) {
             setResolution({ type: 'existing', player_id: playerId });
         }
@@ -514,7 +526,9 @@ function BahrainRow({
     return (
         <TableRow
             className={cn(
-                isAnonymised && !resolution && 'bg-amber-50/50 dark:bg-amber-950/20',
+                isAnonymised &&
+                    !resolution &&
+                    'bg-amber-50/50 dark:bg-amber-950/20',
             )}
         >
             <TableCell data-numeric className="text-xs text-muted-foreground">
@@ -565,7 +579,8 @@ function BahrainRow({
                                                     variant="outline"
                                                     className={cn(
                                                         'text-[10px]',
-                                                        s.confidence === 'high' &&
+                                                        s.confidence ===
+                                                            'high' &&
                                                             'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300',
                                                     )}
                                                 >
@@ -797,11 +812,14 @@ function initialResolutions(
     performances: Performance[],
 ): Record<number, Resolution> {
     const out: Record<number, Resolution> = {};
+
     for (const row of performances) {
         if (row.team_side !== 'bahrain') {
             continue;
         }
+
         const autoPick = row.suggestions.find((s) => s.auto_apply);
+
         if (autoPick) {
             out[row.index] = {
                 type: 'existing',
@@ -816,6 +834,7 @@ function initialResolutions(
 function fixtureLabel(m: MatchSummary): string {
     const home = m.home_team_name ?? '—';
     const away = m.away_team_name ?? '—';
+
     if (m.home_score !== null && m.away_score !== null) {
         return `${home} ${m.home_score} – ${m.away_score} ${away}`;
     }
@@ -827,6 +846,7 @@ function pageTitle(m: MatchSummary): string {
     if (m.home_team_name && m.away_team_name) {
         return `${m.home_team_name} vs ${m.away_team_name}`;
     }
+
     return 'Match report';
 }
 
@@ -842,16 +862,21 @@ function positionFamily(matchPosition: string | null): string | null {
     if (!matchPosition) {
         return null;
     }
+
     const p = matchPosition.toUpperCase();
+
     if (p === 'GK') {
         return 'GK';
     }
+
     if (['CB', 'LB', 'RB', 'LWB', 'RWB', 'DF'].includes(p)) {
         return 'DF';
     }
+
     if (['CM', 'CDM', 'CAM', 'DM', 'AM', 'MF'].includes(p)) {
         return 'MF';
     }
+
     if (['CF', 'ST', 'LW', 'RW', 'LF', 'RF', 'FW'].includes(p)) {
         return 'FW';
     }
