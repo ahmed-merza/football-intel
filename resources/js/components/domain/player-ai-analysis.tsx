@@ -8,6 +8,7 @@ import {
     Loader2,
     RefreshCw,
     Sparkles,
+    Trophy,
     XCircle,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -33,16 +34,19 @@ type RiskFlag = {
     message: string;
 };
 
+type FindingsSection = {
+    key_findings?: string[];
+    football_implications?: string[];
+};
+
 type AnalysisPayload = {
     summary?: string;
-    blood_analysis?: {
-        key_findings?: string[];
-        football_implications?: string[];
-    };
-    body_analysis?: {
-        key_findings?: string[];
-        football_implications?: string[];
-    };
+    blood_analysis?: FindingsSection;
+    body_analysis?: FindingsSection;
+    // Added when the agent's input included recent match performances —
+    // older analyses generated before the cross-domain integration won't
+    // have this field, and the FindingsBlock renders nothing in that case.
+    match_performance_analysis?: FindingsSection;
     combined_insight?: string;
     recommendations?: Recommendation[];
     risk_flags?: RiskFlag[];
@@ -107,8 +111,9 @@ export function PlayerAiAnalysis({
                         Nutritionist Assistant
                     </h2>
                     <p className="text-sm text-muted-foreground">
-                        Combines the latest blood test + body composition into
-                        sport-specific recommendations.
+                        Combines the latest blood test + body composition with
+                        recent match performances into sport-specific
+                        recommendations.
                     </p>
                 </div>
                 <Button
@@ -274,7 +279,11 @@ function AnalysisCard({
                     </p>
                 )}
 
-                <div className="grid gap-4 sm:grid-cols-2">
+                {payload.match_performance_analysis === undefined && (
+                    <StaleMatchContextHint />
+                )}
+
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                     <FindingsBlock
                         title="Blood"
                         icon={Beaker}
@@ -284,6 +293,11 @@ function AnalysisCard({
                         title="Body composition"
                         icon={Gauge}
                         block={payload.body_analysis}
+                    />
+                    <FindingsBlock
+                        title="Match performance"
+                        icon={Trophy}
+                        block={payload.match_performance_analysis}
                     />
                 </div>
 
@@ -297,6 +311,25 @@ function AnalysisCard({
                     )}
             </CardContent>
         </Card>
+    );
+}
+
+function StaleMatchContextHint() {
+    // Surfaced on analyses generated before the cross-domain integration —
+    // they have blood + body sections but no match_performance_analysis.
+    // We can't auto-detect "the player now has match data the old analysis
+    // didn't see" without an extra backend lookup, so the hint is generic:
+    // re-run to include matches if any exist. If the player has no
+    // matches, the new analysis will still emit a populated match section
+    // (with the "no recent matches" fallback) — no harm done.
+    return (
+        <div className="flex items-start gap-2 rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+            <Sparkles className="mt-0.5 size-3.5 shrink-0" />
+            <span>
+                This analysis predates match-performance context. Re-run to
+                include recent matches in the assistant's reasoning.
+            </span>
+        </div>
     );
 }
 
@@ -352,8 +385,8 @@ function FindingsBlock({
     block,
 }: {
     title: string;
-    icon: typeof Beaker;
-    block?: { key_findings?: string[]; football_implications?: string[] };
+    icon: typeof Beaker | typeof Gauge | typeof Trophy;
+    block?: FindingsSection;
 }) {
     if (!block) {
         return null;
