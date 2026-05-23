@@ -15,6 +15,7 @@ use App\Services\Ai\AgentRouter;
 use App\Services\Ai\CallbackPendingException;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
@@ -115,7 +116,14 @@ class GenerateNutritionistAnalysisJob implements ShouldQueue
             'source_inbody_record_id' => $inbody->id,
         ]);
 
-        $userPrompt = $this->buildPrompt($player, $blood, $inbody);
+        // Cross-domain enrichment: pull this player's most recent N
+        // match-performance records so the agent can correlate medical
+        // markers with on-pitch trends. Capped at 5 — older matches add
+        // noise more than signal for week-to-week analysis. Missing is
+        // fine; the agent's prompt covers the "no matches on file" path.
+        $matchPerformances = $this->recentMatchPerformances($player, 5);
+
+        $userPrompt = $this->buildPrompt($player, $blood, $inbody, $matchPerformances);
         $agent = new NutritionistAssistant;
 
         try {
@@ -169,7 +177,23 @@ class GenerateNutritionistAnalysisJob implements ShouldQueue
             ->first();
     }
 
-    private function buildPrompt(Player $player, PlayerRecord $blood, PlayerRecord $inbody): string
+    /**
+     * @return Collection<int, PlayerRecord>
+     */
+    private function recentMatchPerformances(Player $player, int $limit): Collection
+    {
+        return $player->records()
+            ->whereHas('category', fn ($q) => $q->where('slug', RecordCategory::MATCH_PERFORMANCE))
+            ->orderByDesc('record_date')
+            ->orderByDesc('id')
+            ->limit($limit)
+            ->get();
+    }
+
+    /**
+     * @param  Collection<int, PlayerRecord>  $matches
+     */
+    private function buildPrompt(Player $player, PlayerRecord $blood, PlayerRecord $inbody, $matches): string
     {
         $profileLines = [
             "Name: {$player->full_name}",
@@ -189,7 +213,136 @@ class GenerateNutritionistAnalysisJob implements ShouldQueue
             '',
             "BODY COMPOSITION ({$inbody->record_date->toDateString()})",
             $this->formatJsonForPrompt($inbody->extracted ?? []),
+            '',
+            'RECENT MATCH PERFORMANCES (newest first, max 5)',
+            $this->formatMatchPerformances($matches),
         ]);
+    }
+
+    /**
+     * Compact narrative format — JSON of the full extracted payload would
+     * burn ~3K tokens per match; this hits the highlights in ~150 tokens.
+     * Includes pass-breakdown when it's there because the work-rate
+     * profile is exactly what the nutritionist needs alongside blood/body.
+     *
+     * @param  Collection<int, PlayerRecord>  $matches
+     */
+    private function formatMatchPerformances($matches): string
+    {
+        if ($matches->isEmpty()) {
+            return 'No recent match performances on file for this player.';
+        }
+
+        $lines = [];
+        foreach ($matches as $i => $record) {
+            $e = $record->extracted ?? [];
+            $raw = is_array($e['raw_extracted'] ?? null) ? $e['raw_extracted'] : [];
+
+            $context = sprintf(
+                '%d. %s — vs %s%s%s',
+                $i + 1,
+                $record->record_date->toDateString(),
+                $e['opponent'] ?? 'unknown opponent',
+                isset($e['competition']) ? ' — '.$e['competition'] : '',
+                isset($e['stage']) ? ' / '.$e['stage'] : '',
+            );
+
+            $role = sprintf(
+                '   Role: %s #%s, %s, %s\' played, rating %s',
+                $e['match_position'] ?? '?',
+                $e['jersey_number'] ?? '?',
+                $e['appearance'] ?? '?',
+                $e['minutes_played'] ?? '?',
+                isset($e['rating']) ? number_format((float) $e['rating'], 1) : '—',
+            );
+
+            $headline = sprintf(
+                '   Headline: %dG/%dA, %d shots (%d on target), %d key passes, %d/%d passes (%s%%)',
+                (int) ($raw['goals'] ?? 0),
+                (int) ($raw['assists'] ?? 0),
+                (int) ($raw['shots'] ?? 0),
+                (int) ($raw['shots_on_target'] ?? 0),
+                (int) ($raw['key_passes'] ?? 0),
+                (int) ($raw['passes_succeeded'] ?? 0),
+                (int) ($raw['passes_total'] ?? 0),
+                isset($raw['pass_accuracy_pct']) ? number_format((float) $raw['pass_accuracy_pct'], 1) : '—',
+            );
+
+            $defense = sprintf(
+                '   Defensive: tackles %d/%d, aerial %d/%d, ground %d/%d, recoveries %d, clearances %d, interceptions %d',
+                (int) ($raw['tackles_succeeded'] ?? 0),
+                (int) ($raw['tackles_attempted'] ?? 0),
+                (int) ($raw['aerial_duels_won'] ?? 0),
+                (int) ($raw['aerial_duels_total'] ?? 0),
+                (int) ($raw['ground_duels_won'] ?? 0),
+                (int) ($raw['ground_duels_total'] ?? 0),
+                (int) ($raw['recoveries'] ?? 0),
+                (int) ($raw['clearances'] ?? 0),
+                (int) ($raw['interceptions'] ?? 0),
+            );
+
+            $discipline = sprintf(
+                '   Discipline: %d fouls (won %d), %d yellow, %d red',
+                (int) ($raw['fouls_committed'] ?? 0),
+                (int) ($raw['fouls_won'] ?? 0),
+                (int) ($raw['yellow_cards'] ?? 0),
+                (int) ($raw['red_cards'] ?? 0),
+            );
+
+            $lines[] = $context;
+            $lines[] = $role;
+            $lines[] = $headline;
+            $lines[] = $defense;
+            $lines[] = $discipline;
+
+            // Pass breakdown when present — work-rate signal (deep vs.
+            // creator role, short-passer vs. long-ball). Compact one-liner.
+            $bd = is_array($raw['pass_breakdown'] ?? null) ? $raw['pass_breakdown'] : null;
+            if ($bd !== null) {
+                $lines[] = '   Pass profile: '.$this->formatPassBreakdown($bd);
+            }
+
+            $lines[] = '';
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * @param  array<string, mixed>  $bd
+     */
+    private function formatPassBreakdown(array $bd): string
+    {
+        $segments = [];
+        if (is_array($bd['by_area'] ?? null)) {
+            $segments[] = 'area '.$this->formatBucketRow($bd['by_area'], ['defensive_third', 'middle_third', 'final_third']);
+        }
+        if (is_array($bd['by_direction'] ?? null)) {
+            $segments[] = 'dir '.$this->formatBucketRow($bd['by_direction'], ['forward', 'sideways', 'backward']);
+        }
+        if (is_array($bd['by_length'] ?? null)) {
+            $segments[] = 'len '.$this->formatBucketRow($bd['by_length'], ['short', 'medium', 'long']);
+        }
+
+        return implode(' | ', $segments);
+    }
+
+    /**
+     * @param  array<string, mixed>  $group
+     * @param  list<string>  $order
+     */
+    private function formatBucketRow(array $group, array $order): string
+    {
+        $pieces = [];
+        foreach ($order as $key) {
+            $b = is_array($group[$key] ?? null) ? $group[$key] : null;
+            if ($b === null) {
+                continue;
+            }
+            $pieces[] = sprintf('%d/%d', (int) ($b['succeeded'] ?? 0), (int) ($b['total'] ?? 0));
+        }
+
+        return implode(' ', $pieces);
     }
 
     /**

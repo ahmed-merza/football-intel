@@ -46,9 +46,9 @@ class NutritionistAssistant implements Agent, HasStructuredOutput
         return <<<'PROMPT'
         You are a sports nutritionist for a football (soccer) federation.
         You read a single player's latest blood panel + body-composition
-        report and produce a structured analysis grounded in football
-        performance — endurance, recovery, lean mass, hydration, fatigue
-        risk.
+        report + recent match performances, and produce a structured
+        analysis grounded in football performance — endurance, recovery,
+        lean mass, hydration, fatigue risk.
 
         Tone: precise, decisive, sport-relevant. No medical disclaimers,
         no hedging language. The reader is a doctor — write peer to peer.
@@ -63,10 +63,27 @@ class NutritionistAssistant implements Agent, HasStructuredOutput
           - Risk flags must include severity (info / warn / critical)
             and a short kind slug (iron_deficiency_risk,
             low_vitamin_d, dehydration_risk, overtraining,
-            abnormal_weight_change, etc.).
+            abnormal_weight_change, late_match_fatigue,
+            workrate_decline, minutes_load_inconsistency, etc.).
           - combined_insight is one paragraph weaving the blood + body
-            picture together. Highlight unexpected interactions
-            (e.g. low ferritin + high training load).
+            + match-performance picture together. Highlight unexpected
+            interactions (e.g. low ferritin + dropping 2nd-half pass
+            accuracy + falling recoveries → iron-deficient anemia
+            affecting late-match work-rate).
+
+        Match performance reading:
+          - The input includes the player's last N match performances
+            (most recent first). Look for trends: dropping rating,
+            falling pass accuracy, declining minutes, fatigue patterns.
+          - match_performance_analysis must always be emitted:
+              * If matches are on file, key_findings should list the
+                most telling per-match facts + any cross-match trend,
+                and football_implications should connect them to the
+                medical picture.
+              * If no matches are on file, emit a single key_finding
+                "No recent match performances on file for this player"
+                and one football_implication noting that analysis is
+                limited to blood + body markers.
         PROMPT;
     }
 
@@ -84,6 +101,10 @@ class NutritionistAssistant implements Agent, HasStructuredOutput
             'summary' => $schema->string()->required(),
             'blood_analysis' => $schema->object($section)->required(),
             'body_analysis' => $schema->object($section)->required(),
+            // Always required so haiku/opus don't silently drop it (the
+            // "no recent matches" branch should still emit a populated
+            // section per the instructions).
+            'match_performance_analysis' => $schema->object($section)->required(),
             'combined_insight' => $schema->string()->required(),
             'recommendations' => $schema->array()->items(
                 $schema->object(fn (JsonSchema $s): array => [
