@@ -8,6 +8,7 @@ use App\Data\PlayerData;
 use App\Http\Requests\StorePlayerRequest;
 use App\Http\Requests\UpdatePlayerRequest;
 use App\Models\Alert;
+use App\Models\MatchPerformance;
 use App\Models\Player;
 use App\Models\PlayerRecord;
 use App\Models\RecordCategory;
@@ -372,9 +373,38 @@ class PlayerController extends Controller
             ->limit(100)
             ->get();
 
+        // Match-performance records intentionally don't set primary_attachment_id
+        // (the player_records table has UNIQUE(primary_attachment_id) — see
+        // migration 2026_05_11_120000 — and one PDF produces many per-player
+        // records on the match-report side). The source PDF is still reachable
+        // via match_performances.match_report_id → match_reports.attachment_id,
+        // so build a single map from match-performance player_record_id → its
+        // match_report's attachment, then surface it via the same `attachment`
+        // shape so the UI doesn't need to special-case the category.
+        $matchPerformanceRecordIds = $records
+            ->filter(fn ($r) => $r->category->slug === RecordCategory::MATCH_PERFORMANCE)
+            ->pluck('id');
+
+        $matchAttachmentsByRecordId = [];
+        if ($matchPerformanceRecordIds->isNotEmpty()) {
+            MatchPerformance::query()
+                ->whereIn('player_record_id', $matchPerformanceRecordIds)
+                ->with('matchReport.attachment:id,original_filename,mime_type,size_bytes,page_count')
+                ->get(['player_record_id', 'match_report_id'])
+                ->each(function ($mp) use (&$matchAttachmentsByRecordId): void {
+                    $att = $mp->matchReport?->attachment;
+                    if ($att !== null) {
+                        $matchAttachmentsByRecordId[$mp->player_record_id] = $att;
+                    }
+                });
+        }
+
         $result = [];
         foreach ($records as $r) {
             $extracted = $r->extracted ?? [];
+            $effectiveAttachment = $r->primaryAttachment
+                ?? ($matchAttachmentsByRecordId[$r->id] ?? null);
+
             $result[] = [
                 'id' => $r->id,
                 'record_date' => $r->record_date->toDateString(),
@@ -384,13 +414,13 @@ class PlayerController extends Controller
                 ],
                 'source_lab' => $r->source_lab,
                 'summary_text' => $r->summary_text,
-                'attachment' => $r->primaryAttachment !== null ? [
-                    'id' => $r->primaryAttachment->id,
-                    'filename' => $r->primaryAttachment->original_filename,
-                    'mime_type' => $r->primaryAttachment->mime_type,
-                    'size_bytes' => $r->primaryAttachment->size_bytes,
-                    'page_count' => $r->primaryAttachment->page_count,
-                    'download_url' => route('attachments.download', $r->primaryAttachment),
+                'attachment' => $effectiveAttachment !== null ? [
+                    'id' => $effectiveAttachment->id,
+                    'filename' => $effectiveAttachment->original_filename,
+                    'mime_type' => $effectiveAttachment->mime_type,
+                    'size_bytes' => $effectiveAttachment->size_bytes,
+                    'page_count' => $effectiveAttachment->page_count,
+                    'download_url' => route('attachments.download', $effectiveAttachment),
                 ] : null,
                 // Blood-test labs ship typed for table rendering. Other
                 // categories return [] here — the raw extracted payload

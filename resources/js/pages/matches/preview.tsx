@@ -3,6 +3,7 @@ import {
     AlertTriangle,
     ArrowLeft,
     CheckCircle2,
+    ExternalLink,
     Loader2,
     RefreshCw,
     UserPlus,
@@ -59,6 +60,14 @@ type MatchSummary = {
     // for the admin to take over — surfaces a Force Retry button on the
     // processing panel. Threshold lives in config/ai.php, not here.
     can_force_retry: boolean;
+    attachment: {
+        id: number;
+        filename: string;
+        mime_type: string;
+        size_bytes: number;
+        page_count: number | null;
+        download_url: string;
+    } | null;
 };
 
 type Suggestion = {
@@ -143,12 +152,31 @@ function PreviewHeader({ match }: { match: MatchSummary }) {
                             .join(' • ') || 'Awaiting extraction…'}
                     </p>
                 </div>
-                <Button asChild variant="ghost" size="sm">
-                    <Link href="/matches">
-                        <ArrowLeft className="size-4" />
-                        Back
-                    </Link>
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                    <Button asChild variant="ghost" size="sm">
+                        <Link href="/matches">
+                            <ArrowLeft className="size-4" />
+                            Back
+                        </Link>
+                    </Button>
+                    {match.attachment && (
+                        <Button asChild variant="outline" size="sm">
+                            <a
+                                href={match.attachment.download_url}
+                                target="_blank"
+                                rel="noreferrer noopener"
+                            >
+                                <ExternalLink className="size-4" />
+                                Open PDF
+                                {match.attachment.page_count !== null && (
+                                    <span className="ml-1 text-xs text-muted-foreground">
+                                        ({match.attachment.page_count}p)
+                                    </span>
+                                )}
+                            </a>
+                        </Button>
+                    )}
+                </div>
             </div>
         </header>
     );

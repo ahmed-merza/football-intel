@@ -318,6 +318,12 @@ class MatchReportController extends Controller
      */
     private function matchSummary(MatchReport $report): array
     {
+        // Source PDF — surfaced so the show + preview screens can offer
+        // "Open source PDF" links. Eager-load via Eloquent if needed; the
+        // bound model on show/preview routes is fresh from a query, so a
+        // single follow-up SELECT here is fine (one row per page render).
+        $attachment = $report->attachment;
+
         return [
             'id' => $report->id,
             'status' => $report->status,
@@ -341,6 +347,14 @@ class MatchReportController extends Controller
             // default 10). Backend-owned so the threshold can move without an
             // FE deploy — UI just renders the button when this is true.
             'can_force_retry' => $this->canForceRetry($report),
+            'attachment' => $attachment !== null ? [
+                'id' => $attachment->id,
+                'filename' => $attachment->original_filename,
+                'mime_type' => $attachment->mime_type,
+                'size_bytes' => $attachment->size_bytes,
+                'page_count' => $attachment->page_count,
+                'download_url' => route('attachments.download', $attachment),
+            ] : null,
         ];
     }
 
