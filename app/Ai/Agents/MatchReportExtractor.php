@@ -126,7 +126,7 @@ class MatchReportExtractor implements Agent, HasStructuredOutput
         Match-level extras (top of the report, "Match Summary" panel):
           - home_possession_pct / away_possession_pct: the two percentages shown in
             the Possession row. Drop the % sign; emit as numbers (e.g. 57.4, 42.6).
-          - first_half_home_score / first_half_home_away_score /
+          - first_half_home_score / first_half_away_score /
             second_half_home_score / second_half_away_score: the per-half goal counts
             from the row labelled "0' - 45'" and "45' - 90'". Their sum should equal
             the final score; if you can't find the split, omit them.
